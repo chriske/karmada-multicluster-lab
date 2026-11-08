@@ -1,0 +1,23 @@
+# All mapped ports are loopback-only on the Windows/WSL host.
+# From member Pods, reach the mgmt *Docker-node IP* on NodePorts.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  apiServerAddress: "127.0.0.1"
+  apiServerPort: 16443
+nodes:
+  - role: control-plane
+    image: kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0
+    extraPortMappings:
+      - containerPort: 32443
+        hostPort: 16447
+        listenAddress: "127.0.0.1"
+        protocol: TCP
+      - containerPort: 31090
+        hostPort: 31090
+        listenAddress: "127.0.0.1"
+        protocol: TCP
+      - containerPort: 31091
+        hostPort: 31091
+        listenAddress: "127.0.0.1"
+        protocol: TCP

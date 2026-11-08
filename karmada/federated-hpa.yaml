@@ -1,0 +1,30 @@
+# Apply ONLY after completing the manual scenario and resetting to 4 replicas.
+# CPU-based FederatedHPA requires metrics-server in each member and Karmada metrics-adapter.
+apiVersion: autoscaling.karmada.io/v1alpha1
+kind: FederatedHPA
+metadata:
+  name: placement-demo
+  namespace: demo
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: placement-demo
+  minReplicas: 4
+  maxReplicas: 22
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Pods
+          value: 8
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 60
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50

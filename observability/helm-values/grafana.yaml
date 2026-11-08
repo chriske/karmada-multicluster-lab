@@ -1,0 +1,11 @@
+# grafana-community/grafana chart starting values (verify against pinned chart).
+# Data source UIDs must be 'prometheus' and 'loki' for the included dashboards.
+replicas: 1
+persistence:
+  type: pvc
+  enabled: true
+  size: 1Gi
+  accessModes: [ReadWriteOnce]
+grafana.ini:
+  server:
+    root_url: http://localhost:3000

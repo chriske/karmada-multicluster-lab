@@ -1,0 +1,32 @@
+# Applied directly in *each member cluster*, never propagated through Karmada.
+# Only the local service is called, so no MultiClusterService or ingress is required.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloud-burst-loadgen
+  namespace: demo
+  labels:
+    app: cloud-burst-loadgen
+spec:
+  replicas: 0   # scenario enables it intentionally
+  selector:
+    matchLabels:
+      app: cloud-burst-loadgen
+  template:
+    metadata:
+      labels:
+        app: cloud-burst-loadgen
+    spec:
+      containers:
+      - name: generator
+        image: karmada-lab/placement-demo:0.1.0
+        imagePullPolicy: IfNotPresent
+        command: ["python", "-u", "/work/load.py"]
+        env:
+        - name: LOAD_WORKERS
+          value: "4"
+        - name: TARGET_URL
+          value: "http://placement-demo.demo.svc.cluster.local:8080/burn?ms=120"
+        resources:
+          requests: {cpu: 20m, memory: 40Mi}
+          limits: {memory: 128Mi}

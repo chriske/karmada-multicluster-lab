@@ -1,0 +1,16 @@
+# This Service is propagated with the Deployment, but traffic remains per-cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: placement-demo
+  namespace: demo
+  labels:
+    app: placement-demo
+spec:
+  selector:
+    app: placement-demo
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP

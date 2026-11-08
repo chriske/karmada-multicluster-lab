@@ -1,0 +1,23 @@
+apiVersion: policy.karmada.io/v1alpha1
+kind: PropagationPolicy
+metadata:
+  name: placement-demo-burst
+  namespace: demo
+spec:
+  resourceSelectors:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: placement-demo
+  propagateDeps: true
+  placement:
+    clusterAffinities:
+      - affinityName: on-prem
+        clusterNames: [dc-primary, dc-secondary]
+        overflowAffinities:
+          - affinityName: public-cloud
+            clusterNames: [cloud-azure]
+    replicaScheduling:
+      replicaSchedulingType: Divided
+      replicaDivisionPreference: Weighted
+      weightPreference:
+        dynamicWeight: AvailableReplicas

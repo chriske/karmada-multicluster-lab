@@ -1,0 +1,2 @@
+kubernetes>=32,<35
+prometheus-client>=0.21,<1

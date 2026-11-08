@@ -1,0 +1,14 @@
+groups:
+  - name: karmada-lab
+    interval: 15s
+    rules:
+      - record: lab:desired_replicas:total
+        expr: sum(karmada_lab_desired_replicas{namespace="demo",workload="placement-demo"})
+      - record: lab:assigned_replicas:total
+        expr: sum(karmada_lab_assigned_replicas{namespace="demo",workload="placement-demo"})
+      - record: lab:ready_replicas:total
+        expr: sum(kube_deployment_status_replicas_available{namespace="demo",deployment="placement-demo"})
+      - record: lab:cloud_replicas:total
+        expr: sum(karmada_lab_assigned_replicas{namespace="demo",workload="placement-demo",member_cluster="cloud-azure"})
+      - record: lab:unassigned_replicas:total
+        expr: clamp_min(lab:desired_replicas:total - lab:assigned_replicas:total, 0)

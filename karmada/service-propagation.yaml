@@ -1,0 +1,15 @@
+# Deliberately separate from ReplicaScheduling / overflow.
+# Ensure each member has a LOCAL Service even before cloud burst creates endpoints.
+apiVersion: policy.karmada.io/v1alpha1
+kind: PropagationPolicy
+metadata:
+  name: placement-demo-service
+  namespace: demo
+spec:
+  resourceSelectors:
+    - apiVersion: v1
+      kind: Service
+      name: placement-demo
+  placement:
+    clusterAffinity:
+      clusterNames: [dc-primary, dc-secondary, cloud-azure]
