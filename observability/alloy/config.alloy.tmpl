@@ -1,0 +1,73 @@
+// Rendered for each logical cluster by install-collectors.sh.
+prometheus.remote_write "central" {
+  endpoint {
+    url = "http://__PROM_ENDPOINT__/api/v1/write"
+  }
+}
+
+prometheus.scrape "kube_state_metrics" {
+  targets = [{"__address__" = "kube-state-metrics.monitoring.svc:8080", "source_cluster" = "__CLUSTER__"__MEMBER_LABEL__}]
+  forward_to = [prometheus.remote_write.central.receiver]
+  scrape_interval = "30s"
+}
+
+prometheus.scrape "alloy" {
+  targets = [{"__address__" = "127.0.0.1:12345", "source_cluster" = "__CLUSTER__"}]
+  forward_to = [prometheus.remote_write.central.receiver]
+  scrape_interval = "30s"
+}
+
+// The API server authenticates the request and proxies to the kind kubelet;
+// TLS verification remains enabled for the API server endpoint.
+discovery.kubernetes "nodes" {
+  role = "node"
+}
+
+discovery.relabel "cadvisor" {
+  targets = discovery.kubernetes.nodes.targets
+  rule {
+    source_labels = ["__meta_kubernetes_node_name"]
+    target_label = "__metrics_path__"
+    replacement = "/api/v1/nodes/$1/proxy/metrics/cadvisor"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_node_name"]
+    target_label = "node"
+  }
+  rule {
+    target_label = "__address__"
+    replacement = "kubernetes.default.svc:443"
+  }
+  rule {
+    target_label = "source_cluster"
+    replacement = "__CLUSTER__"
+  }
+  __CADVISOR_MEMBER_RULE__
+}
+
+prometheus.scrape "cadvisor" {
+  targets = discovery.relabel.cadvisor.output
+  forward_to = [prometheus.remote_write.central.receiver]
+  scrape_interval = "30s"
+  scheme = "https"
+  authorization {
+    credentials_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+  }
+  tls_config {
+    ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+  }
+}
+
+loki.source.kubernetes_events "events" {
+  log_format = "json"
+  forward_to = [loki.write.central.receiver]
+}
+
+loki.write "central" {
+  external_labels = {"source_cluster" = "__CLUSTER__", "source_type" = "k8s-event"}
+  endpoint {
+    url = "http://__LOKI_ENDPOINT__/loki/api/v1/push"
+  }
+}
+
+__MGMT_SCRAPES__

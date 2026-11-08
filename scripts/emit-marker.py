@@ -15,3 +15,5 @@ try:
  print('loki marker:',message)
 except Exception as e:
  print('loki marker skipped:',str(e),file=sys.stderr)
+ if os.getenv('MARKER_REQUIRED') == '1':
+  sys.exit(1)

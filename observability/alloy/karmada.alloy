@@ -1,0 +1,40 @@
+discovery.kubernetes "karmada_pods" {
+  role = "pod"
+  namespaces {
+    names = ["karmada-system"]
+  }
+}
+
+discovery.relabel "karmada_metrics" {
+  targets = discovery.kubernetes.karmada_pods.targets
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_app"]
+    regex = "karmada-scheduler|karmada-controller-manager"
+    action = "keep"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_container_port_name"]
+    regex = "metrics"
+    action = "keep"
+  }
+  rule {
+    source_labels = ["__meta_kubernetes_pod_label_app"]
+    target_label = "component"
+  }
+  rule {
+    target_label = "source_cluster"
+    replacement = "karmada-mgmt"
+  }
+}
+
+prometheus.scrape "karmada" {
+  targets = discovery.relabel.karmada_metrics.output
+  forward_to = [prometheus.remote_write.central.receiver]
+  scrape_interval = "30s"
+}
+
+prometheus.scrape "placement_exporter" {
+  targets = [{"__address__" = "karmada-lab-exporter.monitoring.svc:9400", "source_cluster" = "karmada-mgmt"}]
+  forward_to = [prometheus.remote_write.central.receiver]
+  scrape_interval = "15s"
+}

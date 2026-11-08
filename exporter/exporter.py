@@ -18,6 +18,7 @@ CLUSTERS = tuple(os.getenv('LAB_CLUSTERS', 'dc-primary,dc-secondary,cloud-azure'
 DESIRED = Gauge('karmada_lab_desired_replicas', 'Top-level desired replicas from the Karmada resource template', ['namespace', 'workload'])
 ASSIGNED = Gauge('karmada_lab_assigned_replicas', 'Replicas assigned in ResourceBinding.spec.clusters', ['namespace', 'workload', 'member_cluster'])
 POLL_OK = Gauge('karmada_lab_exporter_poll_success', 'Whether last polling cycle succeeded')
+WORKLOAD_PRESENT = Gauge('karmada_lab_workload_present', 'Whether the observed Karmada Deployment exists')
 POLL_TIME = Gauge('karmada_lab_exporter_last_poll_timestamp_seconds', 'Last successful poll Unix timestamp')
 HPA_ACTIVE = Gauge('karmada_lab_hpa_active', 'Whether FederatedHPA is configured for demo workload')
 HPA_CURRENT = Gauge('karmada_lab_hpa_current_replicas', 'FederatedHPA current replicas')
@@ -38,7 +39,22 @@ def main():
     interval = float(os.getenv('POLL_SECONDS', '3'))
     while True:
         try:
-            d = apps.read_namespaced_deployment(WORKLOAD, NAMESPACE)
+            try:
+                d = apps.read_namespaced_deployment(WORKLOAD, NAMESPACE)
+            except ApiException as exc:
+                if exc.status != 404:
+                    raise
+                # No observed Deployment is different from a desired zero.
+                DESIRED.clear()
+                ASSIGNED.clear()
+                WORKLOAD_PRESENT.set(0)
+                for gauge in (HPA_ACTIVE, HPA_CURRENT, HPA_DESIRED, HPA_CPU, HPA_TARGET):
+                    gauge.set(float('nan'))
+                last_assignments = None
+                POLL_OK.set(1)
+                POLL_TIME.set(time.time())
+                time.sleep(interval)
+                continue
             desired = int(d.spec.replicas or 0)
             bindings = customs.list_namespaced_custom_object('work.karmada.io', 'v1alpha2', NAMESPACE, 'resourcebindings')
             allocations = {cluster: 0 for cluster in CLUSTERS}
@@ -54,13 +70,15 @@ def main():
                     'autoscaling.karmada.io', 'v1alpha1', NAMESPACE, 'federatedhpas', WORKLOAD)
                 HPA_ACTIVE.set(1)
                 status = hpa.get('status') or {}
-                HPA_CURRENT.set(status.get('currentReplicas') or 0)
-                HPA_DESIRED.set(status.get('desiredReplicas') or 0)
+                HPA_CURRENT.set(status.get('currentReplicas') if status.get('currentReplicas') is not None else float('nan'))
+                HPA_DESIRED.set(status.get('desiredReplicas') if status.get('desiredReplicas') is not None else float('nan'))
                 metric = next((m for m in status.get('currentMetrics', [])
                                if m.get('type') == 'Resource'
                                and m.get('resource', {}).get('name') == 'cpu'), None)
                 observed = ((metric or {}).get('resource') or {}).get('current') or {}
-                HPA_CPU.set(observed.get('averageUtilization') or 0)
+                utilization = observed.get('averageUtilization')
+                HPA_CPU.set(utilization if utilization is not None else float('nan'))
+                HPA_TARGET.set(float('nan'))
                 for m in hpa.get('spec', {}).get('metrics', []):
                     if m.get('type') == 'Resource' and m.get('resource', {}).get('name') == 'cpu':
                         HPA_TARGET.set(m['resource'].get('target', {}).get('averageUtilization') or 0)
@@ -81,11 +99,17 @@ def main():
                 DECISIONS.labels(NAMESPACE, WORKLOAD).inc()
                 LOG.info('placement change: desired=%d assigned=%s', desired, allocations)
             last_assignments = fingerprint
+            WORKLOAD_PRESENT.set(1)
             POLL_OK.set(1)
             POLL_TIME.set(time.time())
         except Exception:
             LOG.exception('Cannot poll Karmada API')
             POLL_OK.set(0)
+            WORKLOAD_PRESENT.set(float('nan'))
+            DESIRED.clear()
+            ASSIGNED.clear()
+            for gauge in (HPA_ACTIVE, HPA_CURRENT, HPA_DESIRED, HPA_CPU, HPA_TARGET):
+                gauge.set(float('nan'))
         time.sleep(interval)
 
 

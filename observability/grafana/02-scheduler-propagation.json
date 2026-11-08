@@ -23,7 +23,7 @@
         "enable": true,
         "hide": false,
         "iconColor": "rgba(54, 162, 235, 1)",
-        "expr": "{source_type=\"scenario-marker\"}",
+        "expr": "{source_type=\"scenario-marker\"} | json | scenario!=\"verify\"",
         "target": {},
         "showIn": 0
       },
@@ -65,7 +65,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(karmada_scheduler_schedule_attempts_total{result=\"success\"}[5m]))",
+          "expr": "sum(increase(karmada_scheduler_schedule_attempts_total{result=\"scheduled\"}[5m])) or (0 * sum(karmada_scheduler_schedule_attempts_total))",
           "legendFormat": "Success",
           "datasource": {
             "type": "prometheus",
@@ -107,7 +107,8 @@
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto"
-      }
+      },
+      "description": "Five-minute increase. Zero is used when this result has no series but scheduler attempt metrics are present; no data indicates those metrics are unavailable."
     },
     {
       "id": 2,
@@ -126,7 +127,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(karmada_scheduler_schedule_attempts_total{result=\"error\"}[5m]))",
+          "expr": "sum(increase(karmada_scheduler_schedule_attempts_total{result=\"error\"}[5m])) or (0 * sum(karmada_scheduler_schedule_attempts_total))",
           "legendFormat": "Errors",
           "datasource": {
             "type": "prometheus",
@@ -168,11 +169,12 @@
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto"
-      }
+      },
+      "description": "Five-minute increase. Zero is used when this result has no series but scheduler attempt metrics are present; no data indicates those metrics are unavailable."
     },
     {
       "id": 3,
-      "title": "Unschedulable bindings",
+      "title": "Binding enqueue events (5m)",
       "type": "stat",
       "gridPos": {
         "x": 12,
@@ -187,8 +189,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(scheduler_pending_bindings{queue=\"unschedulable\"})",
-          "legendFormat": "Unschedulable",
+          "expr": "sum(increase(karmada_scheduler_queue_incoming_bindings_total[5m]))",
+          "legendFormat": "Enqueue events",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -197,7 +199,7 @@
           "range": false
         }
       ],
-      "description": "ALPHA metric",
+      "description": "Number of binding enqueue events in the last five minutes; not the number of pending or unschedulable bindings.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -369,7 +371,7 @@
     },
     {
       "id": 6,
-      "title": "Scheduling queue depth",
+      "title": "Binding enqueue rate by event",
       "type": "timeseries",
       "gridPos": {
         "x": 12,
@@ -384,8 +386,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by(queue)(scheduler_pending_bindings)",
-          "legendFormat": "{{queue}}",
+          "expr": "sum by (event) (rate(karmada_scheduler_queue_incoming_bindings_total[5m]))",
+          "legendFormat": "{{event}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -409,7 +411,7 @@
               }
             ]
           },
-          "unit": "short",
+          "unit": "ops",
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "smooth",
@@ -439,7 +441,8 @@
           "placement": "bottom",
           "calcs": []
         }
-      }
+      },
+      "description": "Rate of bindings added to scheduler queues by event; this is not queue depth. Karmada v1.19.1 does not expose its pending-bindings gauge on the scheduler metrics endpoint."
     },
     {
       "id": 7,
@@ -532,7 +535,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by(le)(rate(karmada_binding_sync_work_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by(le)(rate(binding_sync_work_duration_seconds_bucket[5m])))",
           "legendFormat": "P95",
           "datasource": {
             "type": "prometheus",
@@ -606,7 +609,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by(le)(rate(karmada_work_sync_workload_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by(le)(rate(work_sync_workload_duration_seconds_bucket[5m])))",
           "legendFormat": "P95",
           "datasource": {
             "type": "prometheus",
@@ -680,7 +683,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by(member_cluster)(rate(karmada_create_resource_to_cluster{result=\"error\"}[5m]))",
+          "expr": "sum by(member_cluster)(rate(create_resource_to_cluster{result=\"error\"}[5m]))",
           "legendFormat": "{{member_cluster}}",
           "datasource": {
             "type": "prometheus",
@@ -723,7 +726,53 @@
             "axisPlacement": "auto"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cloud-azure"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#73BF69"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dc-primary"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FADE2A"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dc-secondary"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5794F2"
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "tooltip": {
@@ -735,7 +784,8 @@
           "placement": "bottom",
           "calcs": []
         }
-      }
+      },
+      "description": "An error series may not exist until the first error; no data alone does not prove that collection is healthy or that errors are zero."
     }
   ],
   "refresh": "5s",

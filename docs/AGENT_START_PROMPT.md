@@ -1,6 +1,6 @@
 # Suggested first message to your coding agent
 
-You are in the `karmada-hybrid-lab-agent-handoff-v4` repository, a **starter**, not a fully working deployment. First read `AGENTS.md`, `docs/ARCHITECTURE_DECISIONS.md`, `docs/IMPLEMENTATION_PLAN.md`, and `docs/ACCEPTANCE_TESTS.md` in full. Do not change locked decisions.
+You are in the `karmada-lab` repository, a **starter**, not a fully working deployment. First read `AGENTS.md`, `docs/ARCHITECTURE_DECISIONS.md`, `docs/IMPLEMENTATION_PLAN.md`, and `docs/ACCEPTANCE_TESTS.md` in full. Do not change locked decisions.
 
 Your goal is a reproducible Karmada v1.19.1 kind/WSL2 hybrid bursting laboratory. It has 4 named clusters (`karmada-mgmt`, `dc-primary`, `dc-secondary`, `cloud-azure`), Alloy/Prometheus/Loki/Grafana in mgmt with PVCs and 24h metrics/log retention, default Loki-based Grafana annotations, Windows FreeLens, no ingress, and two demos (manual burst; then real CPU-driven FederatedHPA burst).
 

@@ -1,7 +1,14 @@
-# Grafana Loki Helm chart version-dependent starting values.
-# Pin chart release, check accepted deploymentMode (SingleBinary vs Monolithic),
-# and verify with 'helm template' BEFORE install. Keep one replica, no caches.
+# Grafana Community Loki chart 21.0.0: one local instance, no caches.
 deploymentMode: SingleBinary
+test:
+  enabled: false
+lokiCanary:
+  enabled: false
+gateway:
+  enabled: false
+sidecar:
+  rules:
+    enabled: false
 loki:
   auth_enabled: false
   commonConfig:

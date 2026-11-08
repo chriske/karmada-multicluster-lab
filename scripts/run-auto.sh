@@ -2,28 +2,43 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export KARMADA_CONFIG="${KARMADA_CONFIG:-$PWD/.runtime/karmada/karmada-apiserver.config}"
+mkdir -p .runtime/auto
+export AUTO_SNAPSHOT_LOG="${AUTO_SNAPSHOT_LOG:-$PWD/.runtime/auto/$(date -u +%Y%m%dT%H%M%SZ).jsonl}"
+[[ ! -e "$AUTO_SNAPSHOT_LOG" ]] || { echo "Snapshot log already exists: $AUTO_SNAPSHOT_LOG" >&2; exit 1; }
+cleanup_on_failure() {
+  status=$?
+  trap - EXIT
+  if [[ "$status" -ne 0 ]]; then
+    echo 'Automatic scenario failed; stopping load and attempting baseline reset.' >&2
+    if ! ./scripts/reset-demo.sh; then
+      echo 'Automatic reset failed; inspect load generators, FederatedHPA and Deployment immediately.' >&2
+    fi
+  fi
+  exit "$status"
+}
+trap cleanup_on_failure EXIT
+./scripts/verify-fhpa-prereqs.sh
+./scripts/reset-demo.sh
 for c in dc-primary dc-secondary cloud-azure; do
   kubectl --context "kind-$c" apply -f scenarios/loadgen.yaml
-  kubectl --context "kind-$c" -n demo scale deploy/cloud-burst-loadgen --replicas=0
-  kubectl --context "kind-$c" top pods -n demo >/dev/null || {
-    echo "Metrics API not ready in $c; cannot start FederatedHPA experiment"; exit 1;
-  }
+  kubectl --context "kind-$c" -n demo rollout status deployment/cloud-burst-loadgen --timeout=120s
 done
-if ! kubectl --kubeconfig "$KARMADA_CONFIG" get --raw /apis/metrics.k8s.io/v1beta1 >/dev/null; then
-  echo 'Karmada aggregated metrics API is missing; install karmada-metrics-adapter first'; exit 1
-fi
-kubectl --kubeconfig "$KARMADA_CONFIG" -n demo scale deployment/placement-demo --replicas=4
 kubectl --kubeconfig "$KARMADA_CONFIG" apply -f karmada/federated-hpa.yaml
-SCENARIO=auto python3 scripts/emit-marker.py "FederatedHPA enabled: CPU target 50%" || true
-# Start with two on-prem load generators; cloud load generator is ready when it gets endpoints.
+SCENARIO=auto MARKER_REQUIRED=1 python3 scripts/emit-marker.py 'FederatedHPA enabled: CPU target 50%, bounds 4-22'
 for c in dc-primary dc-secondary cloud-azure; do
-  kubectl --context "kind-$c" -n demo scale deploy/cloud-burst-loadgen --replicas=1
+  kubectl --context "kind-$c" -n demo scale deployment/cloud-burst-loadgen --replicas=1
+  kubectl --context "kind-$c" -n demo rollout status deployment/cloud-burst-loadgen --timeout=120s
 done
-SCENARIO=auto python3 scripts/emit-marker.py "Local loadgen enabled in DCs and cloud" || true
-cat <<'EOF'
-Auto load is now running in each member cluster.
-Watch: kubectl --kubeconfig .runtime/karmada/karmada-apiserver.config -n demo get fhpa -w
-       kubectl --kubeconfig .runtime/karmada/karmada-apiserver.config -n demo get resourcebinding -w
-Stop:  make auto-stop
-Tune:  kubectl --context kind-dc-primary -n demo set env deploy/cloud-burst-loadgen LOAD_WORKERS=8
-EOF
+SCENARIO=auto MARKER_REQUIRED=1 python3 scripts/emit-marker.py 'Automatic burst: local load enabled'
+python3 scripts/monitor-auto.py burst
+SCENARIO=auto MARKER_REQUIRED=1 python3 scripts/emit-marker.py 'Automatic burst: cloud replicas ready'
+for c in dc-primary dc-secondary cloud-azure; do
+  kubectl --context "kind-$c" -n demo scale deployment/cloud-burst-loadgen --replicas=0
+  kubectl --context "kind-$c" -n demo rollout status deployment/cloud-burst-loadgen --timeout=120s
+done
+SCENARIO=auto MARKER_REQUIRED=1 python3 scripts/emit-marker.py 'Automatic burst: load stopped, waiting for scale-in'
+python3 scripts/monitor-auto.py cooldown
+SCENARIO=auto MARKER_REQUIRED=1 python3 scripts/emit-marker.py 'Automatic burst: scale-in to four ready'
+./scripts/reset-demo.sh
+trap - EXIT
+echo "Automatic scenario completed; snapshots: $AUTO_SNAPSHOT_LOG"

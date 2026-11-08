@@ -1,0 +1,124 @@
+# Work status
+
+## 2026-11-08 — P0 audit started
+
+- Read `AGENTS.md`, the architecture decisions, implementation plan, acceptance tests and agent start prompt. The dependency graph is maintained in `IMPLEMENTATION_PLAN.md`.
+- The repository is a starter: bootstrap deliberately fails until observability exists; charts, collectors, provisioning and end-to-end scenarios remain unfinished.
+- Compared the pinned Karmada v1.19.1 metrics-adapter helper's four arguments with `scripts/install-resource-metrics.sh`; the call matches. This is not a runtime validation.
+- Fixed `scripts/check_cluster_names.py` to exclude internal/generated directories and include shell and `.yml` source files. Previously Python bytecode or Git internals caused a UTF-8 decoding failure.
+- PASS: `bash -n scripts/*.sh install-karmada-wsl-tools.sh`; `python3 -m compileall -q app exporter scripts`; `make verify-names`.
+- BLOCKED: `make preflight` verifies pinned CLI versions but fails on Docker socket access (`permission denied`). No cluster, metrics API, storage, FreeLens or demo acceptance test has been run.
+- Next: audit remaining manifests and scripts, pin and verify dependencies, harden bootstrap and execute P1 once Docker access is available. P0 and P1 are not complete.
+
+## 2026-11-08 — target environment bootstrap started
+
+- WSL2 reports 20,482,860 kB of RAM. Docker 29.9.2 is reachable outside the sandbox; `kind get clusters` reported no existing kind clusters.
+- `make bootstrap` outside the sandbox passed preflight but failed because the starter scripts lacked executable permissions. Fixed executable bits on the scripts invoked directly by Make and by the metrics installer.
+- Retried `make bootstrap`; creation of `karmada-mgmt` began. Runtime validation remains in progress; no acceptance criterion is yet claimed as passed.
+- Retry created all four kind clusters. Karmada init created etcd and API server pods, then failed with `dial tcp 172.18.0.2:32443: i/o timeout`: the WSL host cannot reach the Docker Desktop node address directly. A partially initialized Karmada installation now exists; do not treat the generated kubeconfig alone as proof of successful init.
+- Added an explicit node Ready wait to `scripts/create-kind.sh`; this change still requires a bootstrap retry to validate.
+- Hardened `scripts/init-karmada.sh` so a kubeconfig left by an interrupted init is checked for the FederatedHPA CRD and cannot by itself cause init to be considered complete. Shell syntax, naming check and `git diff --check` pass; the recovery path is not yet validated.
+- Next: resolve host versus Docker-network Karmada API reachability and recovery of the partial initialization; then validate member registration and metrics end-to-end. No user environment setting is currently required for sandbox access.
+
+## 2026-11-08 — FreeLens and Karmada API
+
+- User confirmed the four kind cluster connections in Windows FreeLens. The separate Karmada API import is still to be checked in Windows.
+- Created `.runtime/karmada/karmada-freelens.yaml` from the existing private kubeconfig, using `https://127.0.0.1:16447` and retaining certificate verification. `kubectl --kubeconfig .runtime/karmada/karmada-freelens.yaml --request-timeout=10s get --raw /readyz` returned `ok` from WSL.
+- The Karmada API is reachable, but initialization is incomplete. The upstream v1.19.1 initializer refuses a pre-existing API NodePort and regenerates certificates during init; blindly rerunning it is not safe recovery. Investigating a reproducible recovery/bootstrap path; the API response does not prove controllers, member joins or metrics are ready.
+- Set the host-side `.runtime/karmada/karmada-apiserver.config` to the same mapped loopback endpoint; `/readyz` returned `ok`. Updated the init script to use the loopback kubeconfig for its partial-installation check and host-side tools after successful init. `bash -n`, `make verify-names` and `git diff --check` passed. Fresh initialization through Docker Desktop and recovery of the interrupted init still require implementation and validation.
+
+## 2026-11-08 — Karmada initialization recovery
+
+- User reported importing the Karmada API into FreeLens. API functionality beyond connection remains unverified.
+- Added a temporary localhost-only relay for the pinned initializer, whose client port is coupled to the Kubernetes NodePort, plus optional preserved CA inputs. Static syntax and naming checks passed; live validation is in progress.
+- The partial Karmada API had only default namespaces; the host `karmada-system` namespace contained the installer-created API servers and etcd. Backed up the Karmada CA and kubeconfig under ignored `.runtime/karmada-recovery/` and started removal of that partial namespace for reinitialization. No kind cluster is deleted.
+- Reinitialized Karmada with the preserved CA and the localhost relay. `make karmada-up` completed; all three named members reported `Push`, `Ready=True`, Kubernetes v1.35.8. The registration uses host-mapped member APIs for join and switches to Docker-network endpoints for in-cluster controllers.
+- The v1.19.1 upstream metrics adapter manifest contains a `latest` tag. The installer now changes that tag to `v1.19.1` in its private upstream checkout before invoking the official helper. `make metrics-up` started; its runtime result is pending.
+- First metrics attempt: all three member `kubectl top nodes` checks passed, then the official helper failed because `go` was absent. Its sourced development utility calls Go only to derive a minimum version unrelated to deployment; the private checkout now reads that value from `go.mod` instead. Second `make metrics-up` passed all three member checks and created the pinned adapter Deployment; APIService validation remains pending.
+- The previously imported Karmada client credentials still authenticate after recovery: `kubectl` with the backed-up pre-recovery kubeconfig returned `/readyz` = `ok` and listed all three Cluster resources.
+- The official adapter helper then waited on a missing `karmada-metrics-adapter-cert` Secret. Added creation of a dedicated serving certificate signed by the existing Karmada CA, with adapter Service DNS SANs. Third `make metrics-up` succeeded: 3/3 member metrics APIs, adapter rollout, APIService and controller rollout passed.
+- `make verify-fhpa` passed and now checks actual aggregated node and pod metrics, requiring results from all three named members. Repeated `make karmada-up` completed with all three Push members still Ready and no changed cluster endpoints.
+- Updated the installer to reuse a valid CA-signed adapter certificate rather than rotate it on every run; repeated `make metrics-up` succeeded and confirmed reuse.
+- Repeated `make bootstrap` on the existing lab passed preflight, node readiness, Karmada and metrics checks; it exited nonzero at the explicit observability-not-implemented guard, as intended.
+- Remaining: fresh bootstrap and failure recovery are not fully proven; the current bootstrap still intentionally fails after metrics because observability is unfinished. FederatedHPA scaling, dashboards, retention, cross-cluster telemetry and demos remain untested.
+
+## 2026-11-08 — storage and central observability
+
+- Management cluster `standard` is the default `rancher.io/local-path` StorageClass with `WaitForFirstConsumer`; its provisioner deployment was Ready. A temporary PVC and consuming pod produced a `Bound` 1Mi volume. The dedicated test namespace was then deleted. This does not imply persistence after deleting a kind cluster.
+- Created `VERSIONS.md`. Selected and rendered pinned Prometheus, Loki and Grafana charts; their archive SHA-256 values are verified by the new backend installer. Alloy and kube-state-metrics versions are selected but not deployed yet.
+- Chart archives from GitHub Releases returned HTTP 504; the successful source was the official OCI registries. Disabled Loki gateway, canary, test and rules sidecar for the single-instance lab.
+- Started `make observability-backends`; Prometheus PVC has already bound. Backend readiness, collectors and telemetry checks remain in progress.
+- `make observability-backends` passed: Prometheus 2/2, Loki 1/1 and Grafana 1/1; PVCs Bound at 5Gi/3Gi/1Gi; both receiver NodePort Services created. This does not yet prove telemetry ingestion or Grafana annotations.
+- Started `make observability-collectors`: one Alloy and kube-state-metrics per cluster, with source and member labels kept separate and member exporters pointing at management Docker-network NodePorts. End-to-end results pending.
+- Both NodePorts returned ready from WSL and had backend endpoints. Grafana API listed the three provisioned dashboards and both datasource UIDs. A scenario marker was pushed and returned by Loki `query_range`. An intentionally unschedulable test pod generated a real `Warning`; Alloy delivered it to Loki; the test pod was removed. Grafana visual rendering of annotations remains untested.
+- Prometheus `up` already reports healthy kube-state-metrics targets for management and both on-prem members. The simulated cloud collector is still installing; all-source verification is pending.
+- `make observability-collectors` completed on all four clusters and passed a repeat. `make verify-observability` passed; all four kube-state-metrics targets reported `up=1`, and Loki contained Events from all four sources. Temporary pods in each member reached both management NodePort readiness endpoints via the Docker node IP and were removed.
+- Effective Prometheus retention is `1d`; Loki `/config` reports `1d` retention, enabled compaction and filesystem delete requests. Both Grafana datasource health checks returned OK, and Grafana's Loki proxy returned the test marker. On-screen annotation rendering is not yet verified.
+- Added management Alloy discovery for Karmada scheduler and controller metrics; Prometheus reports both targets `up=1`. The state exporter and workload-backed dashboards remain incomplete. Fresh bootstrap remains outstanding.
+- Added backend installation, collector installation and metrics readiness checks to `make bootstrap`. A repeat on the existing lab first failed when the metrics-server GitHub release asset returned 504. Switched metrics-server installation to the official v0.8.0 release overlay at pinned commit `d66279c6426c6581d9656fe3d42bc52db7c29597`; rendered image is `registry.k8s.io/metrics-server/metrics-server:v0.8.0`. Retry passed all prerequisite, backend, collector, PVC and metrics checks, then exited at the deliberate incomplete-lab guard because placement exporter and demo integration are unfinished.
+
+## 2026-11-08 — visual Grafana check
+
+- User confirmed seeing annotations in Grafana and supplied an image showing a Kubernetes `Warning` readiness-probe event rendered on a dashboard. This validates visual warning annotation rendering for the displayed dashboard. The image does not independently identify the scenario-marker annotation or establish rendering on each of the other dashboards.
+
+## 2026-11-08 — 22-pod capacity investigation
+
+- WSL: 12 CPUs, 19.53 GiB RAM, approximately 13 GiB `MemAvailable` before testing. Every kind node reports the same shared 12 CPUs and 19.53 GiB; these values cannot be added together.
+- The demo requests 250m CPU and 128Mi memory per pod, limit 256Mi memory. At 22 replicas this is 5.5 CPU and 2816Mi requested, with 5632Mi aggregate memory limits; actual usage depends on load.
+- Built and loaded the existing demo image and deployed temporary copies with the original resources and probes directly into the three members: `dc-primary` 4/4 Ready, `dc-secondary` 6/6 Ready, `cloud-azure` 12/12 Ready. This is an idle placement test, not a Karmada scheduling or HPA test. During the test WSL `MemAvailable` remained about 13 GiB, and `kubectl top pods` reported 11Mi per application pod. Three dedicated test namespaces were deleted after measurement.
+- The whole requested scale sequence, Karmada overflow, reservations and CPU-loaded behavior have not yet been demonstrated. The existing calibrator only models CPU requests and the three clusters share one host; investigate these limits before claiming reliable burst behavior.
+
+## 2026-11-08 — placement exporter
+
+- Pinned the exporter base image and Python dependencies, added a dedicated read-only Karmada ServiceAccount and namespace-scoped RBAC, and deployed the exporter in `karmada-mgmt`.
+- The first pod failed because its read-only root filesystem had no temporary directory for the Kubernetes Python client. Added a size-limited `/tmp` emptyDir; the deployment subsequently rolled out.
+- A direct exporter `/metrics` check returned `karmada_lab_exporter_poll_success 1` and `karmada_lab_workload_present 0` while the demo is absent. Desired and assigned replicas are deliberately absent in that case rather than reported as zero. Prometheus ingestion and real binding checks are in progress.
+- `make observability-collectors` configured Alloy to scrape the exporter. Real temporary Karmada deployments verified `desired=8`, ResourceBinding assignment `dc-primary=4`, `dc-secondary=4`, `cloud-azure=0`, and identical exporter values in Prometheus. Separately the kube-state-metrics Ready values were 4+4, matching the two member Deployment statuses. Test deployment, policy and bindings were removed afterward.
+- `make placement-exporter` repeated successfully; disabled changing build attestations for the local build to avoid unnecessary exporter rollout when its content is unchanged. `make verify-observability` passed including a fresh exporter poll. The service account can read Deployments but cannot update them. Full manual/automatic burst and fresh bootstrap remain unverified.
+- `make bootstrap` on the existing lab passed the exporter rollout, fresh poll, backend/PVC and four-cluster metrics checks. It then exited nonzero at the explicit end-to-end demo integration guard; no full bootstrap success is claimed.
+
+## 2026-11-08 — manual burst preparation
+
+- Existing demo and HPA were absent, and no member had Pending pods. Updated the capacity calibrator to check all three members before changes, account for memory requests and pod slots, reject an active demo, use a pinned pause image, and wait for Karmada resource summaries to converge.
+- `make calibrate` PASS: `dc-primary` allocated 10850m CPU (4 target slots), `dc-secondary` 10350m (6 slots), `cloud-azure` 8850m (12 slots). These are requested-resource reservations on a shared host, not physical CPU usage. Full scale sequence remains untested.
+- Pinned the demo image base digest, hardened image-loading error handling, and replaced the manual scenario's fixed-delay-only behavior with convergence checks and timestamped desired/assigned/Ready snapshots plus required Loki markers. `make build load deploy` passed. `STAGE_SECONDS=20 make demo-manual` is running; initial 4 replicas converged at 2+2 on-prem.
+- First manual run: 4 and 8 passed, but at 10 Karmada assigned 2 replicas to cloud although two nominal on-prem slots remained. Scheduler logs showed default resource-model buckets estimated zero available on `dc-primary`; this is coarser than the CPU request calibration. The run correctly stopped and the failure is not counted as a pass.
+- Configured the pinned Karmada scheduler to disable `CustomizedClusterResourceModeling`, falling back to the detailed Cluster resource summary used by the lab calibration. Single-node required anti-affinity prevented the scheduler's rolling replacement, so its deployment strategy was set to `Recreate`. Reset the demo to zero and confirmed the original calibrated allocated CPU values converged again. A new run is needed to validate this approach.
+- Second manual run: 4 Ready at 2+2, 8 Ready at 3+5, 10 Ready at 4+6 with no cloud replicas. The resource-summary setting resolved the early overflow in this run; the 16/22 and scale-in stages are still running.
+- Second run completed successfully: 16 = 4+6+6, 22 = 4+6+12, then 8 = 3+5+0 and 4 = 2+2+0; every assigned replica was Ready. Snapshots: `.runtime/manual/20261108T095105Z.jsonl`. Loki returned manual markers, and no FederatedHPA or load-generator deployments remained active. At 22, WSL showed about 12Gi available. The observed scale-in behavior is not a guarantee of automatic move-back in other conditions.
+- Post-run hardening: manual snapshots now also record failed/timeout stages, the dwell defaults to 20 seconds, and calibration rejects active load generators or a FederatedHPA. The new guards have syntax checks but have not been followed by another full scenario run.
+- Added `make reset-demo`; it passed at the four-replica baseline, and the new stage logger recorded `PASS`. `make calibrate` correctly refused the active demo without changing reservations. Added a conservative shared-WSL `MemAvailable` check with explicit `LAB_ALLOW_LOW_MEMORY=1` override; it still needs exercise in a future calibration.
+
+## 2026-11-08 — FederatedHPA scenario implementation
+
+- Reworked the automatic scenario to reset first, verify metrics, start bounded per-cluster local load, observe CPU/HPA/binding/Ready state, stop load, wait for scale-in, and reset. Added per-phase timeouts, WSL CPU/memory guardrails, failure cleanup, JSONL snapshots and required Loki markers.
+- Reduced each generator to a maximum of four workers and added a 250m CPU limit. The updated demo image was built and loaded into all three members. Real autoscaling verification is next; this stage is not yet claimed as passed.
+- Live `make demo-auto`: HPA CPU utilization rose to 282%; desired replicas rose from 4 to 12, ResourceBinding and Ready state reached 4+6+2 across the three members, and aggregated pod metrics included all three. Load generators have been stopped; HPA scale-in is being observed. No full scenario pass until it returns to baseline.
+- `make demo-auto` completed with exit 0. After load was stopped, delayed CPU samples produced an additional scale-up to 20; HPA CPU then fell to 0 and the controller scaled 20→8→4. At 4 Ready, reset removed the FHPA and kept all generators at 0. The first recorded cloud-ready sample was 10:01:11 UTC; the recorded four-ready scale-in was 10:03:43 UTC. Maximum sampled WSL CPU was 59%, minimum available memory 12961Mi. Snapshots: `.runtime/auto/20261108T100020Z.jsonl`. These are observations for this run, not timing or host-safety guarantees.
+
+## 2026-11-08 — operational commands and QA
+
+- Added `make up`, `make verify`, `make demo-auto` and guarded `make down`; existing `demo-manual` and `reset-demo` remain available. `make up` now includes all metrics dependencies, observability, exporter, demo preparation and current health checks; it refuses to overwrite an active HPA/load or a non-baseline replica count.
+- `make verify` passed, including all node and member readiness, aggregated metrics, PVCs, workload consistency, fresh generated Events from all four clusters, a Loki marker, Grafana datasource health, dashboards and enabled annotation definitions.
+- `make up` passed twice on the existing lab, including complete verification. This does not establish a fresh installation. `make down` checks recorded control-plane container IDs before deleting any named cluster; mocked tests passed for mismatch refusal and matching selection. Real teardown/recreation has not been run because it would remove the running lab and its local PVC data.
+- Added static CI checks, including mandatory `make verify-names`. Shell syntax, Python compilation, dashboard JSON and naming checks passed locally; hosted CI has not run.
+- Added cAdvisor collection through each Kubernetes API server with CA verification and a dedicated read-only node-proxy role. Prometheus returned both container CPU and memory series from all four sources. Added actual demo CPU/memory panels, separate from requested capacity and host use.
+- The first expanded `make verify` found Grafana still serving the prior dashboard after a ConfigMap update. Added a dashboard-content hash to Grafana's pod template to trigger a rollout on changes. After redeployment, `make verify` and a final `make up` passed, including the new four-cluster cAdvisor series and Grafana's new panel definitions.
+- Added a persistent two-case unit test for teardown ownership checks, included in CI. It passes with mocked Docker/kind calls. A live teardown and fresh recreation remain untested and would delete this lab's local PVC data.
+
+## 2026-11-08 — live Grafana visual review
+
+- User reported a cluster line appearing at 20 while its tooltip reported 6. Confirmed the four cluster-level assigned/Ready panels use `stacking.mode=normal`: the illustrated top line is the sum 10+4+6, while the tooltip shows the individual series.
+- Installed an isolated Chromium/Playwright environment under ignored `.runtime/` and accessed the local Grafana through a temporary loopback port-forward using credentials read privately from the Kubernetes Secret. Reviewed all three dashboards in a real browser; the port-forward was stopped afterward. Screenshots are private runtime artifacts.
+- Found genuine dashboard issues: the scheduling-success panel filters `result="success"`, while live Karmada uses `result="scheduled"`; workload and binding latency queries include an incorrect `karmada_` metric prefix. The live unprefixed metrics exist. The queue metric is absent and requires investigation; no-data is not proof of zero.
+- The panel titled `FederatedHPA target vs observed CPU` queries only observed CPU and omits the target series. `Available memory by cluster` is request-based scheduling headroom on nodes sharing one WSL host, not independently available physical memory. Scenario verification markers also contribute visual clutter.
+- Review is read-only for dashboard configuration: no dashboard changes have been applied. Fresh-cluster teardown remains unrun.
+
+## 2026-11-08 — Grafana corrections in progress
+
+- Changed the four per-cluster replica charts to non-stacked lines and set consistent cluster colors. Corrected the scheduler success label and Karmada propagation metric names; added the missing FederatedHPA target series.
+- Confirmed the queue metric root cause in Karmada v1.19.1 source: the gauge registers with `legacyregistry`, while the scheduler serves `ctrlmetrics.Registry`. Replaced unavailable queue-depth panels with explicitly labeled binding enqueue activity; these are not equivalent measurements.
+- Clarified request-based capacity on the shared WSL host and filtered verification-only markers from default annotations. Live provisioning and browser verification are pending.
+- Deployed the final dashboard revisions with `make observability-backends`; `make verify` passed afterward, including checks that the provisioned replica charts are non-stacked step lines and both FHPA CPU series are present. `make verify-names`, JSON parsing, Python compilation and the existing two unit tests passed.
+- Reviewed all three dashboards in Chromium and revisited the reported 11:02–11:03 local interval after the final deployment: the cloud, primary and secondary Ready lines visibly sit at 10, 4 and 6. Historical Prometheus queries returned the scheduler success, binding/work latency and enqueue series, plus FHPA target 50% and observed peak 282%. Loki returned 27 manual/auto markers through the new filter and excluded 8 verification markers in the checked interval.
+- Scheduler success/error panels now fall back to zero only while scheduler attempt metrics are present. Resource creation error series may be absent until an error occurs and is documented accordingly; queue depth itself remains unavailable from the pinned upstream scheduler. Existing lab state after verification: four Ready (2+2 on-prem). Fresh teardown/recreation remains untested.

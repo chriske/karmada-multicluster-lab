@@ -21,7 +21,7 @@
 Read state:
 
 ```sh
-KARMADA="$HOME/.kube/karmada.config"
+KARMADA="$PWD/.runtime/karmada/karmada-apiserver.config"
 MEMBERS="$HOME/.kube/config"
 kubectl --kubeconfig "$KARMADA" get clusters
 kubectl --kubeconfig "$KARMADA" -n demo get resourcebindings -o json
@@ -32,16 +32,10 @@ for m in dc-primary dc-secondary cloud-azure; do
 done
 ```
 
-Scale in steps:
+Run the complete sequence and inspect its timestamped snapshots:
 
 ```sh
-make scale4
-make scale8
-make scale10
-make scale16
-make scale22
-make scale16
-make scale8
+make demo-manual
 ```
 
 **Important:** wait for each prior state to converge and inspect both Karmada assignment and Kubernetes readiness. A 'scale' command returning success only means the desired number was patched in the control plane.
@@ -77,8 +71,10 @@ sum by (result)(increase(karmada_scheduler_schedule_attempts_total[5m]))
 ```
 
 ```promql
-sum by (queue) (scheduler_pending_bindings)
+sum by (event) (rate(karmada_scheduler_queue_incoming_bindings_total[5m]))
 ```
+
+The enqueue rate above is not queue depth. Karmada v1.19.1 registers its pending-bindings gauge in a different registry from the one served by the scheduler metrics endpoint, so its queue depth is unavailable here.
 
 ## Expected diagnostics for anomalies
 

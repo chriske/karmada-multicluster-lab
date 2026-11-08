@@ -6,7 +6,7 @@ import urllib.request
 import threading
 
 URL = os.getenv('TARGET_URL', 'http://placement-demo.demo.svc.cluster.local:8080/burn?ms=100')
-WORKERS = max(1, min(32, int(os.getenv('LOAD_WORKERS', '4'))))
+WORKERS = max(1, min(4, int(os.getenv('LOAD_WORKERS', '2'))))
 STOP = threading.Event()
 
 def loop():

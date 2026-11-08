@@ -23,7 +23,7 @@
         "enable": true,
         "hide": false,
         "iconColor": "rgba(54, 162, 235, 1)",
-        "expr": "{source_type=\"scenario-marker\"}",
+        "expr": "{source_type=\"scenario-marker\"} | json | scenario!=\"verify\"",
         "target": {},
         "showIn": 0
       },
@@ -364,7 +364,7 @@
           "unit": "short",
           "custom": {
             "drawStyle": "line",
-            "lineInterpolation": "smooth",
+            "lineInterpolation": "stepAfter",
             "barAlignment": 0,
             "lineWidth": 2,
             "fillOpacity": 5,
@@ -438,22 +438,68 @@
           "unit": "short",
           "custom": {
             "drawStyle": "line",
-            "lineInterpolation": "smooth",
+            "lineInterpolation": "stepAfter",
             "barAlignment": 0,
             "lineWidth": 2,
-            "fillOpacity": 15,
+            "fillOpacity": 0,
             "gradientMode": "none",
             "spanNulls": false,
             "showPoints": "auto",
             "pointSize": 5,
             "stacking": {
-              "mode": "normal",
+              "mode": "none",
               "group": "A"
             },
             "axisPlacement": "auto"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cloud-azure"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#73BF69"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dc-primary"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FADE2A"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dc-secondary"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5794F2"
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "tooltip": {
@@ -465,7 +511,8 @@
           "placement": "bottom",
           "calcs": []
         }
-      }
+      },
+      "description": "Each line shows the individual member cluster value; values are not stacked."
     },
     {
       "id": 7,
@@ -512,22 +559,68 @@
           "unit": "short",
           "custom": {
             "drawStyle": "line",
-            "lineInterpolation": "smooth",
+            "lineInterpolation": "stepAfter",
             "barAlignment": 0,
             "lineWidth": 2,
-            "fillOpacity": 15,
+            "fillOpacity": 0,
             "gradientMode": "none",
             "spanNulls": false,
             "showPoints": "auto",
             "pointSize": 5,
             "stacking": {
-              "mode": "normal",
+              "mode": "none",
               "group": "A"
             },
             "axisPlacement": "auto"
           }
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cloud-azure"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#73BF69"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dc-primary"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FADE2A"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dc-secondary"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5794F2"
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "tooltip": {
@@ -539,7 +632,8 @@
           "placement": "bottom",
           "calcs": []
         }
-      }
+      },
+      "description": "Each line shows the individual member cluster value; values are not stacked."
     },
     {
       "id": 8,
@@ -586,7 +680,53 @@
           },
           "unit": "percent"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cloud-azure"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#73BF69"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dc-primary"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FADE2A"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dc-secondary"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5794F2"
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "reduceOptions": {
@@ -603,7 +743,7 @@
     },
     {
       "id": 9,
-      "title": "Pending scheduler bindings",
+      "title": "Binding enqueue rate by event",
       "type": "timeseries",
       "gridPos": {
         "x": 12,
@@ -618,8 +758,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (queue) (scheduler_pending_bindings)",
-          "legendFormat": "{{queue}}",
+          "expr": "sum by (event) (rate(karmada_scheduler_queue_incoming_bindings_total[5m]))",
+          "legendFormat": "{{event}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"
@@ -628,7 +768,7 @@
           "range": true
         }
       ],
-      "description": "ALPHA metric; breakdown by active/backoff/unschedulable",
+      "description": "Rate of bindings added to scheduler queues by event; this is not queue depth. Karmada v1.19.1 does not expose its pending-bindings gauge on the scheduler metrics endpoint.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -644,7 +784,7 @@
               }
             ]
           },
-          "unit": "short",
+          "unit": "ops",
           "custom": {
             "drawStyle": "line",
             "lineInterpolation": "smooth",
@@ -878,7 +1018,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(karmada_scheduler_schedule_attempts_total{result=\"error\"}[5m]))",
+          "expr": "sum(increase(karmada_scheduler_schedule_attempts_total{result=\"error\"}[5m])) or (0 * sum(karmada_scheduler_schedule_attempts_total))",
           "legendFormat": "Errors",
           "datasource": {
             "type": "prometheus",
@@ -920,7 +1060,8 @@
         "colorMode": "value",
         "graphMode": "area",
         "justifyMode": "auto"
-      }
+      },
+      "description": "Five-minute increase. Zero is used when this result has no series but scheduler attempt metrics are present; no data indicates those metrics are unavailable."
     },
     {
       "id": 14,
@@ -939,7 +1080,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (le)(rate(karmada_work_sync_workload_duration_seconds_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le)(rate(work_sync_workload_duration_seconds_bucket[5m])))",
           "legendFormat": "P95",
           "datasource": {
             "type": "prometheus",
@@ -1088,7 +1229,16 @@
         {
           "refId": "A",
           "expr": "karmada_lab_hpa_cpu_utilization_percent",
-          "legendFormat": "FederatedHPA target vs observed CPU",
+          "legendFormat": "Observed CPU utilization",
+          "datasource": {
+            "uid": "prometheus",
+            "type": "prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "karmada_lab_hpa_cpu_target_percent",
+          "legendFormat": "CPU target",
           "datasource": {
             "uid": "prometheus",
             "type": "prometheus"
@@ -1109,7 +1259,8 @@
         "tooltip": {
           "mode": "multi"
         }
-      }
+      },
+      "description": "Observed CPU utilization and configured FederatedHPA target. Both series are absent when no FederatedHPA exists."
     },
     {
       "id": 902,
@@ -1190,6 +1341,182 @@
         },
         "tooltip": {
           "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 904,
+      "title": "Demo actual CPU use by member",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Observed container CPU use; distinct from CPU requests and shared WSL or Windows host use.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (member_cluster) (rate(container_cpu_usage_seconds_total{job=\"prometheus.scrape.cadvisor\",namespace=\"demo\",container=\"app\",pod=~\"placement-demo-.*\"}[2m]))",
+          "legendFormat": "{{member_cluster}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "cores"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cloud-azure"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#73BF69"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dc-primary"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FADE2A"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dc-secondary"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5794F2"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      }
+    },
+    {
+      "id": 905,
+      "title": "Demo actual memory use by member",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 47,
+        "w": 12,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Observed container memory working set; distinct from requests, limits and total host memory.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (member_cluster) (container_memory_working_set_bytes{job=\"prometheus.scrape.cadvisor\",namespace=\"demo\",container=\"app\",pod=~\"placement-demo-.*\"})",
+          "legendFormat": "{{member_cluster}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cloud-azure"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#73BF69"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dc-primary"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FADE2A"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dc-secondary"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#5794F2"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
         }
       }
     }

@@ -24,9 +24,9 @@ spec:
         command: ["python", "-u", "/work/load.py"]
         env:
         - name: LOAD_WORKERS
-          value: "4"
+          value: "2"
         - name: TARGET_URL
           value: "http://placement-demo.demo.svc.cluster.local:8080/burn?ms=120"
         resources:
           requests: {cpu: 20m, memory: 40Mi}
-          limits: {memory: 128Mi}
+          limits: {cpu: 250m, memory: 128Mi}

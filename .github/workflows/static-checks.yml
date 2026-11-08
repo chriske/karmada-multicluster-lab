@@ -1,0 +1,25 @@
+name: Static checks
+on:
+  push:
+  pull_request:
+jobs:
+  static:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Check canonical cluster names
+        run: make verify-names
+      - name: Check shell syntax
+        run: bash -n scripts/*.sh install-karmada-wsl-tools.sh
+      - name: Compile Python
+        run: python3 -m compileall -q app exporter scripts
+      - name: Check teardown ownership safeguards
+        run: python3 -m unittest discover -s tests
+      - name: Validate dashboard JSON
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          for path in Path('observability/grafana').glob('*.json'):
+              json.loads(path.read_text())
+          PY

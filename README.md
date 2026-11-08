@@ -1,6 +1,6 @@
 # Karmada Hybrid Cloud Bursting Lab — v4 agent handoff kit
 
-**Scope:** Four fixed-name kind clusters on Windows+WSL2+Docker Desktop; centralized Karmada; two mutually exclusive burst scenarios; initial Grafana JSON and observability Helm values carried forward from v2. This is a static/tested-for-syntax **implementation kit, not yet a proven end-to-end deployment**.
+**Scope:** Four fixed-name kind clusters on Windows+WSL2+Docker Desktop; centralized Karmada; two mutually exclusive burst scenarios and in-cluster observability. Both scenarios have been exercised on the current host; reproducibility from a fresh installation remains unverified.
 
 ## Cluster naming — enforced
 
@@ -11,7 +11,7 @@
 | `dc-secondary` | on-prem DC #2 | `kind-dc-secondary` | `dc-secondary` |
 | `cloud-azure` | simulated overflow | `kind-cloud-azure` | `cloud-azure` |
 
-The three members must be Push-registered. Each mgmt and member API gets a fixed Windows localhost port. The mgmt kind node maps NodePorts **32443 -> 16447** (Karmada API), **31090 -> 31090** (Prometheus remote-write) and **31091 -> 31091** (Loki), loopback only. A Kubernetes NodePort Service with matching `nodePort` needs to be created for Prometheus and Loki via Helm/manifest (still outstanding). Member Pods must send to the management Docker node's routed IP, not 127.0.0.1. Those Docker IPs can change after cluster recreation.
+The three members must be Push-registered. Each mgmt and member API gets a fixed Windows localhost port. The mgmt kind node maps NodePorts **32443 -> 16447** (Karmada API), **31090 -> 31090** (Prometheus remote-write) and **31091 -> 31091** (Loki), loopback only. The backend installer creates the matching NodePort Services. Member Pods send to the management Docker node's routed IP, not 127.0.0.1. Those Docker IPs can change after cluster recreation; rerun the collector installer after recreation.
 
 ## WSL2 prerequisites
 
@@ -20,53 +20,62 @@ The three members must be Push-registered. Each mgmt and member API gets a fixed
 ## Bootstrap commands
 
 ```bash
-make preflight                 # host tools and Docker; no clusters required
-make bootstrap                 # kind + Karmada + metrics; reports incomplete observability
-make calibrate                 # CPU request-only reservations targeting 4/6/12 slots
-make build load                # Docker build, kind load into three members
-make deploy                    # namespace + deployment + local Service + two policies
-make verify-fhpa               # member metrics-server + Karmada aggregated APIService
+make up                        # reconcile the lab and run current health checks
+make verify                    # recheck clusters, metrics, telemetry and demo readiness
+make demo-manual               # 4 -> 8 -> 10 -> 16 -> 22 -> 8 -> 4
+make demo-auto                 # CPU-driven burst, scale-in and reset
+make reset-demo                # stop HPA/load and restore four Ready replicas
+make down                      # delete recorded lab clusters and their local PVC data
 ```
 
-**Default bootstrap change (v4):** `make bootstrap` now includes member `metrics-server` and the `karmada-metrics-adapter` installer directly, using the **v1.19.1-tagged upstream Karmada** helper. `make verify-fhpa` checks the 3 metrics-server deployments, their node metrics, the adapter deployment, Karmada APIService and FederatedHPA API registration. No human adapter-install checkpoint is part of the intended flow. **The new script is syntactically checked but has not yet been tested against a running WSL2/Docker/Karmada lab.** The coding agent must test and fix it before declaring bootstrap done.
+`make bootstrap` is the underlying entry point for `make up`; `make preflight`,
+`make calibrate`, `make build load deploy`, and `make verify-fhpa` remain available
+for targeted troubleshooting. `make up` refuses to overwrite an active HPA,
+load generator or non-baseline demo; run `make reset-demo` first. `make verify`
+creates short-lived Normal Kubernetes Events and a Loki marker to prove telemetry.
+`make down` only deletes clusters whose control-plane container IDs match the
+private records in `.runtime/kind-owned/`; it deletes their node-local PVC data.
+After recreation, import the new kubeconfigs into FreeLens. The prior Karmada
+credentials are privately archived under `.runtime/archive/`.
+
+**Default bootstrap:** `make bootstrap` includes member `metrics-server`, the `karmada-metrics-adapter` installer using the **v1.19.1-tagged upstream Karmada** helper, central backends, the placement exporter, collectors and demo baseline. `make verify-fhpa` checks the member APIs, adapter and controller rollouts, APIService and FederatedHPA API registration, and requires aggregated node and pod metrics from all three members. Both burst scenarios have been tested once on the current WSL2 environment; a fresh bootstrap remains unverified. See `docs/VALIDATION_RESULTS.md` for evidence and limitations.
 
 See **`AGENTS.md`**, **`docs/AGENT_START_PROMPT.md`**, **`docs/IMPLEMENTATION_PLAN.md`**, and **`docs/ACCEPTANCE_TESTS.md`** for the complete handoff and priorities.
 
 ## Scenario A — manual burst
 
 ```bash
-make manual
+make demo-manual
+make reset-demo
 ```
 
-Desired sequence: 4 -> 8 -> 10 -> 16 -> 22 -> 8 -> 4, adjustable with `STAGE_SECONDS=60 make manual`. `make manual` removes FederatedHPA first. **These replica counts do not guarantee exact per-cluster allocations**: the capacity calibration is modeled with CPU-request-only reservation Pods but not yet verified against a live scheduler; test overflow against real Karmada `Cluster.status.resourceSummary` and `ResourceBinding.spec.clusters` values. A Karmada assignment does not guarantee that a pod has been scheduled on the member.
+The desired sequence is 4 -> 8 -> 10 -> 16 -> 22 -> 8 -> 4. `make demo-manual` removes FederatedHPA, stops any local load generators, waits for each binding and member Ready count to converge, and records snapshots in `.runtime/manual/`. The default dwell time is 20 seconds; adjust it with `STAGE_SECONDS=60 make demo-manual`. On the current host the full sequence passed with cloud overflow at 16 and 22; see `docs/VALIDATION_RESULTS.md`. Results depend on current capacity and are not a guarantee of future automatic move-back. A Karmada assignment is distinct from a member pod being Ready.
 
 ## Scenario B — FederatedHPA automatic burst
 
 - Source `karmada/federated-hpa.yaml`: `autoscaling.karmada.io/v1alpha1`, CPU utilization target 50%, minimum 4, maximum 22.
 - CPU metrics: **member** `metrics-server` -> `karmada-metrics-adapter` -> Karmada aggregated `metrics.k8s.io` -> FederatedHPA -> scheduler -> ResourceBinding changes -> member kube-controller-manager.
-- A Python HTTP demo server has CPU-bound `/burn?ms=120`; a bounded, always-on load generator runs in each member and calls only **its local** `placement-demo` ClusterIP Service. No ingress, mesh or MultiClusterService required.
-- Starting workers=4 per cluster, HPA cannot be guaranteed to use overflow until workload requests, node scheduling capacity and CPU load are empirically tuned. Monitor the physical WSL/Windows CPU as well as request reservations.
+- A Python HTTP demo server has CPU-bound `/burn?ms=120`; each member's bounded local load generator calls only its local `placement-demo` ClusterIP Service. No ingress, mesh or MultiClusterService is required.
+- Generators start with two workers, increase to at most four if needed, and each have a 250m CPU limit. The runner checks WSL CPU/memory, limits each phase to 600 seconds by default and resets on failure. Windows host CPU is not measured. The actual application load and HPA behavior depend on available capacity.
 
 ```bash
-make auto-start
+make demo-auto
+# In another terminal if desired:
 kubectl --kubeconfig .runtime/karmada/karmada-apiserver.config -n demo get fhpa -w
-# separate terminal:
-kubectl --kubeconfig .runtime/karmada/karmada-apiserver.config -n demo get resourcebinding -w
-make auto-stop
 ```
 
-After `make auto-stop`, default HPA downscale may have already altered replica targets, so reset to 4 before running manual tests. The loadgenerator is a local Deployment and is **not** propagated by the Karmada policy. A **separate** Karmada service PropagationPolicy deploys the local Service in all three member clusters to enable in-cluster traffic, but local Services without endpoints will produce errors until replicas exist, which is expected for the burst cloud cluster.
+The command waits for CPU-driven cloud overflow, stops load, observes scale-in, then removes the FHPA and restores four Ready replicas. It records timestamped snapshots under `.runtime/auto/`. `make auto-stop` performs the same baseline reset if needed. In the tested run, the HPA briefly continued scaling up after load stopped because prior CPU samples were still arriving; it then scaled down to four. This timing is not guaranteed. The load generators are local Deployments and are **not** propagated by Karmada. A separate service policy provides a local Service in all three members; the cloud Service has no endpoints until cloud replicas exist.
 
-## Observability design retained from v2
+## Observability
 
-All backends live inside `karmada-mgmt`: Prometheus (PVC 5GiB, retention 24h), Loki (PVC 3GiB, retention 24h), Grafana (PVC 1GiB). Alloy can collect Kubernetes Events via `loki.source.kubernetes_events`, plus kube-state-metrics scraping. Three Grafana dashboard JSON drafts are carried forward, now with basic FederatedHPA overview panels and Loki annotations (Warning events and scenario milestones). **The chart values are starting points and the actual Helm installation, remote-write receiver, NodePort services, Alloy agents, scenario event production, Grafana datasource provisioning, and state-exporter deployment are not yet wired end-to-end.** Do not expect populated dashboard panels from `make kind-up` alone.
+All backends live inside `karmada-mgmt`: Prometheus (PVC 5GiB, retention 24h), Loki (PVC 3GiB, retention 24h), Grafana (PVC 1GiB). `make observability-backends` installs the central services and provisions Grafana dashboards and datasources; `make placement-exporter` installs the Karmada placement exporter; `make observability-collectors` installs Alloy and kube-state-metrics in all four clusters. `make verify-observability` checks component readiness, PVCs, metrics from each cluster and a fresh exporter poll. Actual central metrics, Kubernetes Event, marker and placement exporter checks have passed; the user also confirmed a Warning annotation visible on a dashboard. See `docs/VALIDATION_RESULTS.md` for limits. Full visual annotation coverage and complete demo data remain outstanding, so some dashboard panels are empty when the demo is absent.
 
-Cluster names are consistent in policies, scripts, dashboards. A minimum local-path/default StorageClass must be configured before deploying the monitoring PVCs. kind node-local PV data do not survive deletion/recreation of the kind container unless host-mounted and backed up.
+The observed kind default `standard` local-path StorageClass dynamically binds PVCs. kind node-local PV data do not survive deletion/recreation of the kind container unless host-mounted and backed up. Access Grafana in FreeLens using a port-forward to the `monitoring/grafana` Service; retrieve the generated admin password locally with `kubectl --context kind-karmada-mgmt -n monitoring get secret grafana -o jsonpath='{.data.admin-password}' | base64 -d`.
 
 ## Validation & known missing implementation
 
 Syntax-level tests: `bash -n`, Python compile, YAML parse, dashboard JSON validation, naming check.
-Run-time *pending*: WSL2 Kubernetes four-cluster installation, Karmada init/join + TLS / DNS, metrics adapter, Helm charts + PVC, cross-cluster receiver connectivity, real-cluster validation of CPU-request reservations, Alloy collectors and complete Grafana metrics.
+Runtime checks passed for the existing four-cluster WSL2 lab, Karmada joins, aggregated resource metrics, backend PVC binding, cross-cluster telemetry, manual burst and CPU-driven autoscaling. Still pending: fresh-install reproducibility, actual teardown/recreation, Windows-host resource telemetry and visual verification of scenario annotations on every dashboard.
 
 Official docs:
 - https://karmada.io/docs/tutorials/autoscaling-with-resource-metrics/
@@ -78,10 +87,10 @@ Official docs:
 
 ## Predefined receiver NodePorts and scenario markers
 
-After the respective Helm releases exist, apply `observability/network/nodeports.yaml`; it creates additional NodePort services selected by Helm pod labels (verify actual labels for pinned charts before using). A client inside a member cluster must reach the mgmt **Docker node IP** on 31090/31091; only a Windows/WSL user can use localhost mappings. An optional `scripts/emit-marker.py` posts structured scenario events to Loki NodePort 31091; they appear as Grafana annotations when the Loki backend and datasource are ready.
+The backend installer applies `observability/network/nodeports.yaml`. A client inside a member cluster reaches the mgmt **Docker node IP** on 31090/31091; only a Windows/WSL user can use localhost mappings. `scripts/emit-marker.py` posts structured scenario events to Loki NodePort 31091 for Grafana annotations.
 
 ### Capacity calibration notes
 
-Run `make calibrate` after all core components in the member clusters are up but **before** deploying the demo. This installs one locally created, low-runtime-CPU `capacity-reservation` Pod into each member (separate `karmada-lab-system` namespace). It computes a request value from allocatable minus existing Pod requests, leaving roughly 4/6/12 demo-pod CPU slots plus 150m buffer. Memory, MaxPods, scheduler estimation timing and future loadgen requests may change the effective capacity. This is intentionally a demonstration of Kubernetes **requested** capacity, not independent physical CPU hardware. The member clusters share the same host. To recalibrate, stop the demo and rerun `make calibrate`.
+Run `make calibrate` after all core components in the member clusters are up but **before** deploying the demo. It checks all members first, rejects an active demo, HPA or load generator, validates memory and pod-slot headroom, then installs one low-runtime-CPU `capacity-reservation` Pod per member. It also checks shared WSL `MemAvailable`; override a low-memory warning only after review with `LAB_ALLOW_LOW_MEMORY=1`. The requested CPU leaves nominal 4/6/12 demo slots plus 150m buffer. The script waits for Karmada resource summaries to converge. The scheduler uses exact Cluster resource summaries instead of the default coarse resource-model buckets for this lab. All members share one physical host; these reservations are scheduling requests, not dedicated physical CPU hardware. To recalibrate, remove the demo and HPA, stop load generators, and rerun `make calibrate`.
 
 Service distribution is intentionally governed by `karmada/service-propagation.yaml` and NOT the burst policy, so `cloud-azure` has a ClusterIP Service before its first workload replica arrives. The main overflow `PropagationPolicy` selects only the Deployment.

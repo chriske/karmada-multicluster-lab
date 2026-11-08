@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: karmada-lab-exporter
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: karmada-lab-exporter
+  template:
+    metadata:
+      labels:
+        app: karmada-lab-exporter
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: exporter
+          image: karmada-lab/placement-exporter:0.1.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: KUBECONFIG
+              value: /etc/karmada/config/kubeconfig
+          ports:
+            - name: metrics
+              containerPort: 9400
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: temporary
+              mountPath: /tmp
+            - name: api-credentials
+              mountPath: /etc/karmada/config
+              readOnly: true
+      volumes:
+        - name: temporary
+          emptyDir:
+            sizeLimit: 16Mi
+        - name: api-credentials
+          secret:
+            secretName: karmada-lab-exporter-kubeconfig
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: karmada-lab-exporter
+  namespace: monitoring
+spec:
+  selector:
+    app: karmada-lab-exporter
+  ports:
+    - name: metrics
+      port: 9400
+      targetPort: metrics
