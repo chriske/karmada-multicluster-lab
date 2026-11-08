@@ -1,5 +1,7 @@
 # Agent implementation plan — Karmada hybrid burst laboratory
 
+This is the original implementation roadmap, not a live completion dashboard. For the implemented design see [ARCHITECTURE.md](ARCHITECTURE.md); for executed results and remaining limits see [VALIDATION_RESULTS.md](VALIDATION_RESULTS.md) and [WORK_STATUS.md](WORK_STATUS.md). Windows-host telemetry is currently deferred at the user’s request.
+
 ## End state / definition of done
 
 With a fresh Ubuntu WSL2 environment (Docker Desktop integration, tools installed), a **single documented entry command** creates or reconciles the four clusters, installs Karmada and its required controllers + **all** CPU-based FederatedHPA dependencies, installs central observability with PVCs/24h retention and per-cluster collection, creates the sample app and policies, and gives operationally useful Grafana dashboards and Windows FreeLens imports. Two demo commands reproducibly show manual and automatic cloud bursting. Real test results are recorded in `docs/VALIDATION_RESULTS.md`.

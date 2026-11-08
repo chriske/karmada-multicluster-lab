@@ -1,5 +1,7 @@
 # Architecture decisions — locked for lab v1
 
+For the implemented design and scenario diagrams see [ARCHITECTURE.md](ARCHITECTURE.md). The questions at the end preserve the original investigation list; consult [VALIDATION_RESULTS.md](VALIDATION_RESULTS.md) for current evidence.
+
 | Topic | Decision | Why |
 |---|---|---|
 | Cluster topology | 4 single-node kind: `karmada-mgmt`, `dc-primary`, `dc-secondary`, `cloud-azure` | Small local simulation, explicit roles |

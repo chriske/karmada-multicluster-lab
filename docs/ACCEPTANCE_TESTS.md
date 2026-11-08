@@ -1,5 +1,7 @@
 # Acceptance tests — executable evidence, not assumptions
 
+This is the acceptance checklist; observed runs, failures and limits are recorded in [VALIDATION_RESULTS.md](VALIDATION_RESULTS.md), not inferred from this table. The user currently defers Windows-host telemetry.
+
 Statuses: `PASS`, `FAIL`, `BLOCKED (no host access)`, `NOT RUN`. Attach exact commands and abbreviated output in `docs/VALIDATION_RESULTS.md`.
 
 | ID | Critical acceptance criterion | How to verify |

@@ -9,7 +9,7 @@ is not evidence that every component has been validated end to end.
 | kind node | v1.35.8, sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0 |
 | kubectl | v1.35.9 |
 | Helm | v3.22.1 |
-| Karmada / karmadactl | v1.19.1; control-plane Kubernetes images explicitly pinned to v1.36.2 |
+| Karmada / karmadactl | v1.19.1; control-plane Kubernetes images explicitly pinned to v1.36.2; CRD release archive SHA-256 `2d33ab75f91b3b8f67413e3118241fb141fc8533e634c05d4f98e120c96d5b02`; source fallback commit `c64ba38cf7083c99bedaeed6acbdd1a8597fded1` |
 | metrics-server | v0.8.0 |
 | Prometheus | chart 29.45.1, app v3.16.0; OCI `ghcr.io/prometheus-community/charts/prometheus` |
 | Loki | chart 21.0.0, app 3.7.9; OCI `ghcr.io/grafana-community/helm-charts/loki` |
@@ -21,4 +21,4 @@ is not evidence that every component has been validated end to end.
 `scripts/install-observability-backends.sh` verifies chart archives by SHA-256
 before rendering and installing. The rendered manifests and deployed container
 images must be checked during validation; chart app versions alone are not an
-image inventory. P0 remains open for the remaining application and dependency audit.
+image inventory. The documented versions are pins, not proof that an installation from an empty artifact cache has passed. Runtime evidence and limitations are recorded in [VALIDATION_RESULTS.md](VALIDATION_RESULTS.md).

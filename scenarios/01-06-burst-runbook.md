@@ -1,5 +1,7 @@
 # Guided demo: policy → on-prem → overflow → recovery
 
+For an explanation of the architecture, both scenarios and Grafana panels, see [the architecture guide](../docs/ARCHITECTURE.md). This runbook provides operational checks and PromQL.
+
 ## Preconditions
 
 - `dc-primary` and `dc-secondary` represent on-prem and `cloud-azure` represents cloud.
@@ -22,13 +24,12 @@ Read state:
 
 ```sh
 KARMADA="$PWD/.runtime/karmada/karmada-apiserver.config"
-MEMBERS="$HOME/.kube/config"
 kubectl --kubeconfig "$KARMADA" get clusters
 kubectl --kubeconfig "$KARMADA" -n demo get resourcebindings -o json
 for m in dc-primary dc-secondary cloud-azure; do
   echo "----- $m -----"
-  kubectl --kubeconfig "$MEMBERS" --context "kind-$m" -n demo get deployment placement-demo -o wide || true
-  kubectl --kubeconfig "$MEMBERS" --context "kind-$m" -n demo get pods -l app=placement-demo -o wide || true
+  kubectl --context "kind-$m" -n demo get deployment placement-demo --ignore-not-found -o wide
+  kubectl --context "kind-$m" -n demo get pods -l app=placement-demo -o wide
 done
 ```
 
@@ -45,8 +46,7 @@ make demo-manual
 - 4, 8, and 10 replicas: on-prem preferred, no cloud assignment *when the advertised primary capacity is sufficient*.
 - 16 and 22 replicas: `cloud-azure` receives overflow replicas *once on-prem capacity cannot fit the request*.
 - Scale-down: verify whether cloud assignments are reduced first; log any divergence and the binding transitions.
-- Unassignable requests: make the desired replicas exceed total simulated capacity, show scheduler errors/unschedulable queue and distinguish missing assignments from member Pending pods.
-- Forced re-evaluation with new on-prem capacity is **not** equivalent to ordinary downscaling. Test both separately.
+- The validated sequence is limited to the seven stages above. Requests beyond simulated capacity and forced re-evaluation after adding capacity are separate, unvalidated experiments; they are not part of `make demo-manual`. Queue depth is unavailable as described below.
 
 ## Suggested Prometheus queries
 

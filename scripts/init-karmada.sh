@@ -24,6 +24,40 @@ if [[ -f "$KARMADA_CFG" ]]; then
     exit 1
   fi
 else
+  # Keep a verified copy outside .runtime/karmada: that directory is archived
+  # when the management cluster is recreated. The release asset can be
+  # temporarily unavailable; an exact pinned source checkout is a fallback.
+  [[ "$KARMADA_VERSION" == v1.19.1 ]] || { echo 'Unsupported Karmada version; update CRD pins first.' >&2; exit 1; }
+  crd_cache="$PWD/.runtime/artifacts/karmada-v1.19.1-crds.tar.gz"
+  crd_sha=2d33ab75f91b3b8f67413e3118241fb141fc8533e634c05d4f98e120c96d5b02
+  mkdir -p .runtime/artifacts
+  if [[ ! -s "$crd_cache" ]] || ! printf '%s  %s\n' "$crd_sha" "$crd_cache" | sha256sum -c - >/dev/null 2>&1; then
+    rm -f "$crd_cache"
+    for candidate in .runtime/archive/karmada.*/karmada/crds.tar.gz; do
+      if [[ -f "$candidate" ]] && printf '%s  %s\n' "$crd_sha" "$candidate" | sha256sum -c - >/dev/null 2>&1; then
+        cp "$candidate" "$crd_cache"
+        break
+      fi
+    done
+  fi
+  crd_source="$crd_cache"
+  if [[ ! -s "$crd_cache" ]]; then
+    source_repo="$PWD/.runtime/karmada-source"
+    if [[ -d "$source_repo/.git" ]] && [[ "$(git -C "$source_repo" rev-parse HEAD)" == c64ba38cf7083c99bedaeed6acbdd1a8597fded1 ]]; then
+      # The release workflow packs charts/karmada/_crds as crds/.
+      crd_source="$PWD/.runtime/artifacts/karmada-v1.19.1-source-crds.tar.gz"
+      git -C "$source_repo" archive --format=tar --prefix=crds/ HEAD:charts/karmada/_crds | gzip -n > "$crd_source"
+      echo 'Using CRDs generated from the pinned Karmada source commit.'
+    else
+      echo 'Downloading the pinned Karmada CRD release asset.'
+      curl --fail --location --retry 2 --connect-timeout 15 --max-time 60 \
+        -o "$crd_cache.tmp" "https://github.com/karmada-io/karmada/releases/download/${KARMADA_VERSION}/crds.tar.gz"
+      printf '%s  %s\n' "$crd_sha" "$crd_cache.tmp" | sha256sum -c -
+      mv "$crd_cache.tmp" "$crd_cache"
+    fi
+  else
+    echo 'Using the checksum-verified Karmada CRD release asset.'
+  fi
   # karmadactl couples its client port to the NodePort. Docker Desktop only
   # publishes that NodePort on host port 16447, so bridge the two locally
   # during init; the relay never listens on an external interface.
@@ -41,7 +75,7 @@ else
     extra_ca_args=(--ca-cert-file "$KARMADA_CA_CERT" --ca-key-file "$KARMADA_CA_KEY")
   fi
   karmadactl --kubeconfig "$HOSTCFG" --context kind-karmada-mgmt init \
-    --crds "https://github.com/karmada-io/karmada/releases/download/${KARMADA_VERSION}/crds.tar.gz" \
+    --crds "$crd_source" \
     --karmada-data "$(realpath .runtime/karmada)" \
     --karmada-pki "$(realpath .runtime/karmada)/pki" \
     --cert-external-ip "127.0.0.1,${MGMT_IP}" \

@@ -81,16 +81,17 @@ def main():
                 HPA_TARGET.set(float('nan'))
                 for m in hpa.get('spec', {}).get('metrics', []):
                     if m.get('type') == 'Resource' and m.get('resource', {}).get('name') == 'cpu':
-                        HPA_TARGET.set(m['resource'].get('target', {}).get('averageUtilization') or 0)
+                        target = m['resource'].get('target', {}).get('averageUtilization')
+                        HPA_TARGET.set(target if target is not None else float('nan'))
                         break
             except ApiException as exc:
                 if exc.status != 404:
                     raise
                 HPA_ACTIVE.set(0)
-                HPA_CURRENT.set(0)
-                HPA_DESIRED.set(0)
-                HPA_CPU.set(0)
-                HPA_TARGET.set(0)
+                # An absent HPA has no utilization, target, or replica status.
+                # Zero would falsely imply an active HPA targeting 0% CPU.
+                for gauge in (HPA_CURRENT, HPA_DESIRED, HPA_CPU, HPA_TARGET):
+                    gauge.set(float('nan'))
             DESIRED.labels(NAMESPACE, WORKLOAD).set(desired)
             for name, count in allocations.items():
                 ASSIGNED.labels(NAMESPACE, WORKLOAD, name).set(count)

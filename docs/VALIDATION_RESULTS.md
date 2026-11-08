@@ -1,8 +1,14 @@
 # Validation results
 
-This handoff kit is NOT end-to-end validated. The v3 starter was syntax checked previously. v4 makes the pinned upstream metrics-adapter installer **part of the bootstrap** but its Kubernetes runtime behavior requires validation by an agent with access to Windows/WSL2/Docker.
+## Latest verified state — 2026-11-08
 
-Use `docs/ACCEPTANCE_TESTS.md`; record actual PASS/FAIL/BLOCKED status here. Never copy sample commands as test evidence without executing them.
+On the user’s WSL2/Docker Desktop host, all four kind clusters were deleted and recreated. The first `make up` failed on a GitHub CRD download timeout; after a verified cached-asset fallback was implemented, the retry and a further `make up` passed. `make verify`, the complete manual and automatic demos, the three Grafana dashboards, and all five FreeLens connections were checked successfully. The latest detailed evidence is under [Rebuild checkpoint](#rebuild-checkpoint--2026-11-08).
+
+An entirely empty artifact-cache install and the original FreeLens 503 root cause remain unverified. Windows-host telemetry is deferred at the user’s request. A successful tested run does not guarantee repeatability under different network or resource conditions.
+
+The chronological checkpoints below record the actual state *at that time*: early BLOCKED, NOT RUN and incomplete statements are historical and superseded by later results. The [acceptance checklist](ACCEPTANCE_TESTS.md) defines criteria; a command is evidence only when actually executed.
+
+## Historical starter-kit checkpoint — 2026-11-08
 
 Local check on 2026-11-08: `bash -n scripts/*.sh install-karmada-wsl-tools.sh` passed; YAML parsing confirmed the requested image digest on every node in all four kind configurations. `make preflight` passed the naming and pinned CLI checks, then failed because Docker socket access was denied. `make -n bootstrap` shows metrics installation followed by an explicit failure for the still-unimplemented Alloy and observability stack. No Kubernetes runtime checks were executed.
 
@@ -13,7 +19,7 @@ Local check on 2026-11-08: `bash -n scripts/*.sh install-karmada-wsl-tools.sh` p
 | Four cluster bootstrap | BLOCKED — no Windows Docker access | |
 | Observability and two real demos | BLOCKED — no Windows Docker access | |
 
-## Current checkpoint — 2026-11-08
+## Historical preflight checkpoint — 2026-11-08
 
 | Command | Result | Evidence |
 |---|---|---|
@@ -100,3 +106,21 @@ See `WORK_STATUS.md` for the ongoing work log. None of A01–A16 is claimed as p
 `make observability-backends` and `make verify` passed after the dashboard corrections. A real Chromium review of all three provisioned dashboards showed propagation latency data; a focused recheck of the reported historical interval showed individual Ready values of `cloud-azure=10`, `dc-primary=4`, `dc-secondary=6` at their matching vertical positions. The final provisioned replica panels are checked as non-stacked step charts by `verify-telemetry.py`.
 
 Historical Prometheus range queries returned the corrected scheduling and propagation metrics and both FHPA CPU series (50% target, observed peak 282%). The Loki annotation selector returned manual/auto scenario markers and excluded verification-only markers. The scheduler's pending-bindings gauge is not served by Karmada v1.19.1's metrics registry; enqueue rate is shown as a different, explicitly labeled metric, not as queue depth. Resource creation error series can legitimately be absent before the first error; absence alone does not prove health. No new scenario run or fresh installation was performed for this checkpoint.
+
+## HPA inactive-state checkpoint — 2026-11-08
+
+`make placement-exporter` and `make verify` passed. Direct inspection of the deployed exporter with no FHPA returned `karmada_lab_hpa_active 0` and NaN for CPU utilization, CPU target and HPA replica status. A temporary FHPA with target 50% returned active=1, target=50% and observed CPU=0%; the FHPA was then deleted and `make reset-demo` verified four Ready replicas (2+2 on-prem) and stopped load. This tests active/inactive reporting, not another autoscaling or fresh-install run. The user deferred Windows-host telemetry.
+
+## Rebuild checkpoint — 2026-11-08
+
+Pre-teardown `make preflight` and `make verify` passed. `make down` successfully deleted the four ownership-verified lab clusters and their node-local PVC data. On fresh recreation the first `make up` failed while downloading the pinned Karmada CRDs due to a GitHub timeout; after adding a SHA-256-verified cached asset/source fallback, a retry on those freshly created clusters passed `make up` and `make verify`, including Ready members, aggregated metrics, three Bound PVCs and fresh telemetry.
+
+On the recreated clusters, `make demo-manual` passed 4→8→10→16→22→8→4 with all assigned replicas Ready; at 22 the distribution was 4+6+12. `make demo-auto` passed: FHPA observed 265% CPU, increased desired replicas to 12 with Ready distribution 4+6+2, and after stopping load the delayed samples increased the desired count to 20 before scale-in returned to four. Snapshots are `.runtime/manual/20261108T114344Z.jsonl` and `.runtime/auto/20261108T114633Z.jsonl`. First-attempt fresh bootstrap was not successful, and fresh installation with an empty artifact cache has not been tested.
+
+FreeLens initially returned its internal 503 after recreation, even though all four kubeconfigs worked from Windows `kubectl.exe` and Windows could reach the API ports. Deleting the catalog entries removed their contexts from the synchronized files; `make kind-up` regenerated them, but the user still reports connection failure. Investigation remains open.
+
+A subsequent `make up` on the recreated lab also passed current health checks. The installed FreeLens 2.0 application generates its reported 503 internally when its cluster state is disconnected; the underlying cause of that state is still unverified.
+
+The user confirmed a newly imported FreeLens management-cluster entry works with the same effective kubeconfig; FreeLens saved the import as its own copy. The three other newly imported entries remain pending user confirmation, and the precise cause of the original stale catalog entries remains unverified. A Chromium review after rebuilding loaded all three Grafana dashboards and showed new scenario data and annotation lines.
+
+FreeLens follow-up: the user confirmed `dc-primary`, `dc-secondary`, and `cloud-azure` all connect after importing them as new FreeLens-managed entries, in addition to the previously confirmed `karmada-mgmt` and Karmada API. These imports are copies and require refresh after a future rebuild. The original 503 cause remains unverified.

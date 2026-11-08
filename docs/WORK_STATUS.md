@@ -1,5 +1,7 @@
 # Work status
 
+This is a chronological work log: older pending, blocked and in-progress entries describe their original checkpoints and may be superseded below. The latest rebuild and FreeLens results are near the end; a reader-oriented overview and diagrams are in [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ## 2026-11-08 — P0 audit started
 
 - Read `AGENTS.md`, the architecture decisions, implementation plan, acceptance tests and agent start prompt. The dependency graph is maintained in `IMPLEMENTATION_PLAN.md`.
@@ -122,3 +124,40 @@
 - Deployed the final dashboard revisions with `make observability-backends`; `make verify` passed afterward, including checks that the provisioned replica charts are non-stacked step lines and both FHPA CPU series are present. `make verify-names`, JSON parsing, Python compilation and the existing two unit tests passed.
 - Reviewed all three dashboards in Chromium and revisited the reported 11:02–11:03 local interval after the final deployment: the cloud, primary and secondary Ready lines visibly sit at 10, 4 and 6. Historical Prometheus queries returned the scheduler success, binding/work latency and enqueue series, plus FHPA target 50% and observed peak 282%. Loki returned 27 manual/auto markers through the new filter and excluded 8 verification markers in the checked interval.
 - Scheduler success/error panels now fall back to zero only while scheduler attempt metrics are present. Resource creation error series may be absent until an error occurs and is documented accordingly; queue depth itself remains unavailable from the pinned upstream scheduler. Existing lab state after verification: four Ready (2+2 on-prem). Fresh teardown/recreation remains untested.
+
+## 2026-11-08 — remaining work and HPA metric semantics
+
+- User deferred Windows-host telemetry; retain the distinction between container/WSL and whole-Windows metrics without adding a host collector.
+- Reviewed the fresh-install and teardown paths without deleting clusters or local PVC data. Fresh recreation remains untested; a real teardown would destroy the current lab's node-local monitoring data.
+- Found the exporter returned zero for HPA CPU/target/replica status when no FHPA existed, despite the dashboard documenting those values as absent. Changed these values to NaN when unavailable; `karmada_lab_hpa_active` remains 0. A missing CPU target is likewise NaN rather than an invented 0%.
+- `make placement-exporter` and `make verify` passed on the running lab. Direct exporter metrics showed active=0 and NaN for CPU target, CPU utilization and HPA replica status without an HPA. A temporary real FHPA produced active=1 and target=50%; it was deleted, and `make reset-demo` returned the workload to four Ready (2+2 on-prem). Python compilation, `make verify-names`, and `git diff --check` passed.
+- Updated README and FHPA dashboard documentation to reflect implemented and verified work and the remaining fresh-install limitation. No fresh recreation or repeat load scenario was performed.
+
+## 2026-11-08 — fresh rebuild in progress
+
+- User authorized the destructive lab rebuild after being informed that node-local Prometheus/Loki/Grafana data would be deleted. Confirmed all four named control-plane container IDs match this lab's private ownership records, and all three PVCs were bound before teardown. Unrelated Docker resources are outside the teardown scope.
+- Running preflight and pre-teardown health verification before `make down`; final rebuild and scenario evidence pending.
+- `make preflight` and pre-teardown `make verify` passed. `make down` deleted the four ownership-verified lab clusters; fresh `make up` recreated all four nodes Ready but failed while fetching the official CRD release asset (GitHub connection timed out). No fresh-bootstrap pass is claimed.
+- Compared the archived v1.19.1 CRD release contents with the pinned Karmada source commit `c64ba38cf7083c99bedaeed6acbdd1a8597fded1`: directory contents matched. The installer now uses a SHA-256-verified cached release asset, or generates the same CRD tree from that exact source commit if available, before falling back to a time-bounded verified download. Retrying `make up` on the freshly recreated clusters.
+- Retry `make up` succeeded on all four newly recreated clusters: three Push members Ready, aggregated metrics from all members, PVCs Bound, telemetry and Grafana checks passed, and baseline demo 4 Ready. Initial attempt had failed and was resumed; this is not yet a first-attempt clean bootstrap pass. Manual and automatic scenarios are being rerun.
+- FreeLens reported an internal 503 after recreation. All four new kubeconfigs successfully queried nodes in WSL, all five localhost ports were reachable from Windows, the FreeLens entries point to the new files, and Windows `kubectl.exe` successfully queried the management node using the identical file. Suggested fully restarting FreeLens to clear its in-memory connection state; user confirmation pending.
+- On the recreated lab `make demo-manual` passed all 4→8→10→16→22→8→4 stages with assigned=Ready. At 10 the members were 4+6+0 and at 22 they were 4+6+12. Snapshot: `.runtime/manual/20261108T114344Z.jsonl`. Starting the automatic scenario.
+- Windows `kubectl.exe` independently queried all four nodes using exactly the paths configured in FreeLens; Windows localhost ports were reachable. FreeLens restart did not clear the 503; requested a test of recreating one FreeLens catalog entry, without deleting a cluster. Root cause is not yet established.
+- `make demo-auto` passed on the recreated lab. With CPU 265%, desired rose to 12 and Ready reached 4+6+2; after generators stopped, delayed samples raised desired to 20 before CPU fell and scaling returned to four Ready. Snapshot: `.runtime/auto/20261108T114633Z.jsonl`. An additional `make up` idempotence check is running.
+- The FreeLens catalog removal also removed the contexts from the four synchronized kubeconfig files; `make kind-up` regenerated those files from the existing clusters, and all four node queries passed again. The user confirmed that the catalog entries reappeared but reported they still could not connect. Both the Windows-native kubectl and localhost API ports work; original FreeLens proxy activation failure remains under investigation.
+- A second `make up` on the recreated lab passed all current health checks. Inspection of the installed FreeLens 2.0 application shows its internal 503 is generated when it considers the cluster disconnected, before forwarding to Kubernetes. A separate same-cluster kubeconfig path was prepared for a clean FreeLens catalog-entry test; user result pending.
+- The user confirmed that a newly added FreeLens entry using a duplicate of the management kubeconfig connects successfully. FreeLens stored that import as its own separate kubeconfig; this provides a workaround for the stale original catalog entries, but their precise failure mechanism is not established. The user was asked to add the other three likewise; confirmation pending.
+- Browser review of the three newly provisioned Grafana dashboards completed; the fresh scenario data and annotation lines render, and replica charts remain non-stacked. No claim is made about the deleted pre-rebuild monitoring history.
+- User confirmed the three member clusters also connect successfully after adding each kubeconfig as a new FreeLens-managed entry. All four kind clusters and the Karmada API have now been confirmed accessible in FreeLens after rebuilding. FreeLens-managed kubeconfig copies must be refreshed after future cluster recreation; the original catalog-entry failure mechanism remains unverified.
+
+## 2026-11-08 — documentation review and architecture guide
+
+- Rewrote the README in Hungarian around the actual lab, operation, two scenarios, FreeLens/Grafana access and current validation limits. Added `docs/ARCHITECTURE.md` with topology, control-flow and autoscaling diagrams; component roles, actual policy/HPA settings and their effect; measured demo results; telemetry paths; Grafana panel interpretation; and troubleshooting.
+- Captured and visually inspected three real Grafana screenshots of the post-rebuild scenarios, with no kubeconfigs or credentials in the images. Updated the observability guide and scenario runbook; marked the old plan/acceptance/decisions as historical context and placed the latest actual validation state before older blocked entries. Windows-host telemetry remains deferred; empty-cache bootstrap and the original FreeLens 503 cause remain unverified.
+- Documentation checks: 35 local Markdown targets exist, the three PNG files were inspected, Markdown fences are balanced, `make verify-names` and `git diff --check` passed. No cluster behavior was changed for this documentation task.
+
+## 2026-11-08 — English repository default
+
+- Preserved the Hungarian README and architecture guide as `README.hu.md` and `docs/ARCHITECTURE.hu.md`, including their diagrams and screenshots. Added cross-language links and pointed the Hungarian guides to one another.
+- Replaced the default `README.md` and `docs/ARCHITECTURE.md` with English equivalents, preserving the lab settings, scenario results, Grafana explanations and validation limitations. Updated the observability guide and runbook references to describe the English default correctly.
+- Checked 14 Markdown files and 64 local references with no missing targets; both architecture guides contain five Mermaid diagrams and three screenshots. Markdown fences, `make verify-names`, and `git diff --check` passed. No cluster behavior was changed.
