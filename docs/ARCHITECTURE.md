@@ -6,10 +6,11 @@ This guide explains **what happens in the lab** when an application's replica co
 
 ## 1. What does the lab model?
 
-A service primarily runs in two on-premises Kubernetes clusters. When the desired replicas no longer fit within their estimated available capacity, Karmada also places replicas in a third cluster that simulates the cloud. We investigate two questions:
+A service primarily runs in two on-premises Kubernetes clusters. When the desired replicas no longer fit within their estimated available capacity, Karmada also places replicas in a third cluster that simulates the cloud. We investigate three questions:
 
 1. **Manual change:** what happens to placement when we increase and then decrease the replica count ourselves?
 2. **Automatic change:** what happens when FederatedHPA changes the replica count in response to a CPU metric?
+3. **Cluster failure:** do replicas move to healthy members, including cloud overflow when needed, after `dc-primary` becomes unavailable?
 
 All four clusters run as separate kind clusters on one local WSL2/Docker Desktop host. The name `cloud-azure` denotes a role: it is **not actual Azure**. The diagrams do not represent an internet connection or multiple physical hosts.
 
@@ -213,6 +214,8 @@ The lower overview panels explain scenario B. In `FederatedHPA target vs observe
 **Karmada | Cluster Capacity & Placement:** `CPU request utilization %` and `Memory request utilization %` are request-to-allocatable ratios. `Unrequested CPU` and `Unrequested memory` show capacity not requested for scheduling; the latter is not the host's actual free memory. `Pod slots available` is a separate constraint. An `Exporter health` value of 1 means the exporter's most recent Karmada poll succeeded; it does not establish the health of every other component.
 
 **Karmada | Scheduler & Propagation:** scheduler attempts, binding enqueue rate and P95 propagation latency help narrow down problems. P95 is a histogram-based estimate over a time window, not the exact startup time of individual replicas. An error series may show `No data` when no series with that label has yet been created; missing data alone establishes neither zero errors nor healthy collection. In Karmada v1.19.1, the `scheduler_pending_bindings` gauge is registered in a different registry from the one served by the scheduler endpoint, so queue depth is unavailable on this dashboard. Enqueue rate is a different measurement.
+
+The separate [cluster failover scenario](../scenarios/02-cluster-failover.md) tests an unavailable member and overflow to cloud after the surviving on-prem capacity is exhausted. It is implemented independently of the manual and HPA demos.
 
 ## 7. Common questions and checks
 

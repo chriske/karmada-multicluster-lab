@@ -4,7 +4,7 @@
 
 Ez a labor egyetlen Windows + WSL2 + Docker Desktop gépen, négy különálló kind Kubernetes-clusterrel mutatja meg, hogyan osztja el a Karmada az alkalmazás replikáit a helyi clusterek és egy **szimulált** felhős cluster között. A FreeLens a clusterek vizsgálatára, a Grafana az események és metrikák követésére szolgál.
 
-A részletes magyarázat, az architektúraábrák, a két forgatókönyv lépései és a Grafana-képernyőképek itt találhatók: **[A labor működése és architektúrája](docs/ARCHITECTURE.hu.md)**.
+A részletes magyarázat, az architektúraábrák, a forgatókönyvek lépései és a Grafana-képernyőképek itt találhatók: **[A labor működése és architektúrája](docs/ARCHITECTURE.hu.md)**.
 
 ## Mit lehet megfigyelni?
 
@@ -16,10 +16,11 @@ A részletes magyarázat, az architektúraábrák, a két forgatókönyv lépés
 
 A Karmada API-ban létrehozott `placement-demo` Deploymenthez egy `PropagationPolicy` rendel célclustereket. A policy a két on-prem clustert részesíti előnyben, és ha a becslés szerint ott nem fér el minden replika, a `cloud-azure` is kaphat belőlük. A Karmada a kívánt számot szétosztja; a tagclusterek Kubernetes-vezérlői hozzák létre és indítják el a Podokat. A **kívánt**, a **kiosztott** és a ténylegesen **Ready** replikaszám különböző állapot.
 
-A labor két, egymástól elválasztott szcenáriót futtat:
+A labor három, egymástól elválasztott szcenáriót futtat:
 
 - **Kézi burst:** a kívánt replikaszámot a parancs állítja: 4→8→10→16→22→8→4. A legutóbbi tesztben 10-ig az on-prem clusterek fogadták a replikákat; 22-nél a megoszlás 4+6+12 volt.
 - **Automatikus burst:** a `FederatedHPA` a Podok CPU-kihasználtsága alapján változtatja a kívánt számot; a helyi terhelésgenerátorok leállítása után a rendszer visszaskáláz. Az 50%-os cél a Podok **CPU-requestjéhez viszonyított** kihasználtságra vonatkozik.
+- **Cluster-failover:** a labor szünetelteti a `dc-primary` clustert, felismeri a kiesést, és megvizsgálja, hogy a `dc-secondary` clusteren el nem férő replikák Ready állapotba kerülnek-e a `cloud-azure` clusteren. A primary folytatása előtt 60 másodperces megfigyelési szakasz következik; a failover csak ideiglenesen, a tesztre kapcsol be, majd az eredeti beállítás áll vissza.
 
 A 4/6/12 kapacitás egy erre a laborra számolt ütemezési cél: a foglaló Podok CPU-requesteket tartanak fenn. A három tag ugyanazon a fizikai gépen osztozik; ezek nem egymástól független fizikai erőforrások. A pontos eloszlás a tényleges kapacitástól és a scheduler állapotától függ.
 
@@ -32,6 +33,7 @@ make up             # létrehozza vagy összeegyezteti a labort, majd ellenőrzi
 make verify         # aktuális állapot és adatfolyamok ellenőrzése
 make demo-manual    # kézi 4→8→10→16→22→8→4
 make demo-auto      # FederatedHPA terhelés, burst, visszaskálázás
+make demo-failover  # kontrollált dc-primary pause, failover, visszaállítás
 make reset-demo     # HPA és terhelés leállítása; vissza 4 Ready replikára
 make down           # a nyilvántartott laborclusterek és helyi adataik törlése
 ```
@@ -60,6 +62,7 @@ Az újraépített laboron a `make up`, `make verify`, a kézi és az automatikus
 
 - [Részletes architektúra és forgatókönyvek](docs/ARCHITECTURE.hu.md)
 - [Demo runbook és diagnosztikai lekérdezések](scenarios/01-06-burst-runbook.md)
+- [Cluster-failover forgatókönyv](scenarios/02-cluster-failover.hu.md) · [English](scenarios/02-cluster-failover.md) — kontrollált kiesés, megfigyelés és helyreállítás
 - [Megfigyelési összetevők](observability/README.md)
 - [Elvégzett ellenőrzések és korlátok](docs/VALIDATION_RESULTS.md)
 - [Folyamatos munkanapló](docs/WORK_STATUS.md)

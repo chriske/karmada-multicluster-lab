@@ -6,10 +6,11 @@ Ez a leírás azoknak szól, akik szeretnék megérteni, **mi történik a labor
 
 ## 1. Mit modellez a labor?
 
-Egy szolgáltatás elsődlegesen két helyszíni Kubernetes-clusterben fut. Ha a kívánt replikák az elérhetőként becsült helyszíni kapacitásba nem férnek bele, a Karmada egy harmadik, felhőt szimuláló clusterbe is helyez replikákat. Két kérdést vizsgálunk:
+Egy szolgáltatás elsődlegesen két helyszíni Kubernetes-clusterben fut. Ha a kívánt replikák az elérhetőként becsült helyszíni kapacitásba nem férnek bele, a Karmada egy harmadik, felhőt szimuláló clusterbe is helyez replikákat. Három kérdést vizsgálunk:
 
 1. **Kézi változtatás:** mi történik az elhelyezéssel, ha mi növeljük, majd csökkentjük a replikaszámot?
 2. **Automatikus változtatás:** mi történik, ha a replikaszámot egy CPU-metrika alapján a FederatedHPA módosítja?
+3. **Clusterkiesés:** átkerülnek-e a replikák az egészséges tagokra, szükség esetén a cloudba, ha a `dc-primary` elérhetetlenné válik?
 
 Mind a négy cluster egy helyi gép WSL2/Docker Desktop környezetében, külön kind clusterként fut. A `cloud-azure` neve szerepet jelöl: **nem valódi Azure**, és az ábrák nem internetes vagy több fizikai gépet érintő kapcsolatot mutatnak.
 
@@ -213,6 +214,8 @@ Az alsó áttekintő panelek a B szcenáriót magyarázzák. A `FederatedHPA tar
 **Karmada | Cluster Capacity & Placement:** a `CPU request utilization %` és `Memory request utilization %` a requestek allocatable-hoz viszonyított aránya. Az `Unrequested CPU` és `Unrequested memory` az ütemezési szempontból nem kért kapacitást mutatja; az utóbbi nem a gép tényleges szabad memóriája. A `Pod slots available` külön korlát. Az `Exporter health` 1 értéke az exporter legutóbbi Karmada-lekérdezésének sikerét jelzi, nem minden más komponens egészségét.
 
 **Karmada | Scheduler & Propagation:** a scheduler-kísérletek, a bindingok beérkezésének üteme és a terjesztés P95 késleltetése segít a hiba behatárolásában. A P95 egy adott időablak hisztogramalapú becslése, nem az egyes replikák pontos indulási ideje. A hibaesemény-sorozat `No data` is lehet, ha még nem keletkezett ilyen címkéjű sorozat; az adathiány önmagában sem a nulla hibát, sem a gyűjtés egészségét nem bizonyítja. A Karmada v1.19.1-ben a `scheduler_pending_bindings` gauge más regiszterbe kerül, mint amelyet a scheduler végpontja kiszolgál; ezért a várólista mélysége ezen a dashboardon nem áll rendelkezésre. A beérkezési ráta más mérőszám.
+
+A külön [cluster-failover forgatókönyv](../scenarios/02-cluster-failover.hu.md) egy elérhetetlen tag és a túlélő on-prem kapacitás kimerülése után jelentkező cloud-túlcsordulás esetét vizsgálja. A kézi és HPA-demótól függetlenül implementáltuk.
 
 ## 7. Tipikus kérdések és ellenőrzések
 

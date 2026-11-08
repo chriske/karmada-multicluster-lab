@@ -4,7 +4,7 @@
 
 This lab uses four separate kind Kubernetes clusters on one Windows + WSL2 + Docker Desktop host to demonstrate how Karmada distributes application replicas between on-premises clusters and a **simulated** cloud cluster. FreeLens is used to inspect the clusters, and Grafana shows their events and metrics.
 
-For a detailed explanation, architecture diagrams, walkthroughs of both scenarios, and Grafana screenshots, see **[How the lab works: architecture and scenarios](docs/ARCHITECTURE.md)**.
+For a detailed explanation, architecture diagrams, walkthroughs of the scenarios, and Grafana screenshots, see **[How the lab works: architecture and scenarios](docs/ARCHITECTURE.md)**.
 
 ## What can you observe?
 
@@ -16,10 +16,11 @@ For a detailed explanation, architecture diagrams, walkthroughs of both scenario
 
 A `PropagationPolicy` selects target clusters for the `placement-demo` Deployment created in the Karmada API. The policy prefers the two on-premises clusters; if the estimated capacity there cannot accommodate every replica, `cloud-azure` can receive the remainder. Karmada divides the desired replicas, and each member cluster's Kubernetes controllers create and start the Pods. **Desired**, **assigned**, and actually **Ready** replica counts describe different states.
 
-The lab runs two separate scenarios:
+The lab runs three separate scenarios:
 
 - **Manual burst:** the command sets the desired count to 4→8→10→16→22→8→4. In the latest test, all replicas up to 10 ran on-premises; at 22 the distribution was 4+6+12.
 - **Automatic burst:** a `FederatedHPA` adjusts the desired count based on Pod CPU utilization; the system scales back in after the local load generators stop. The 50% target measures utilization **relative to the Pods' CPU requests**.
+- **Cluster failover:** the lab pauses `dc-primary`, detects its failure, and tests whether replicas that do not fit on `dc-secondary` become Ready on `cloud-azure`. It includes a 60-second cloud observation window before the primary is resumed; failover is enabled only temporarily for the test and then restored to its prior setting.
 
 The 4/6/12 capacity is a scheduling target calculated for this lab: reservation Pods hold CPU requests. All three members share the same physical host; their resources are not physically independent. The exact distribution depends on actual capacity and scheduler state.
 
@@ -32,6 +33,7 @@ make up             # create or reconcile the lab, then verify it
 make verify         # check the current state and telemetry flows
 make demo-manual    # manual 4→8→10→16→22→8→4
 make demo-auto      # FederatedHPA load, burst and scale-in
+make demo-failover  # controlled dc-primary pause, failover and restoration
 make reset-demo     # stop HPA and load; return to 4 Ready replicas
 make down           # delete recorded lab clusters and their local data
 ```
@@ -60,6 +62,7 @@ On the rebuilt lab, `make up`, `make verify`, and both the manual and automatic 
 
 - [Detailed architecture and scenarios](docs/ARCHITECTURE.md) · [Magyar változat](docs/ARCHITECTURE.hu.md)
 - [Demo runbook and diagnostic queries](scenarios/01-06-burst-runbook.md)
+- [Cluster failover scenario](scenarios/02-cluster-failover.md) · [Magyar változat](scenarios/02-cluster-failover.hu.md) — controlled outage, monitoring and recovery
 - [Observability components](observability/README.md)
 - [Executed checks and limitations](docs/VALIDATION_RESULTS.md)
 - [Ongoing work log](docs/WORK_STATUS.md)

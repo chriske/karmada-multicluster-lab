@@ -3,7 +3,7 @@ include config/lab.env
 KARMADA_CONFIG ?= $(PWD)/.runtime/karmada/karmada-apiserver.config
 IMAGE ?= karmada-lab/placement-demo:0.1.0
 .NOTPARALLEL: bootstrap up
-.PHONY: help up down bootstrap verify preflight kind-up karmada-up metrics-up verify-fhpa observability-backends observability-collectors placement-exporter verify-observability prepare-demo build load deploy inspect calibrate manual demo-manual demo-auto reset-demo auto-start auto-stop verify-names
+.PHONY: help up down bootstrap verify preflight kind-up karmada-up metrics-up verify-fhpa observability-backends observability-collectors placement-exporter verify-observability prepare-demo build load deploy inspect calibrate manual demo-manual demo-auto demo-failover reset-demo auto-start auto-stop verify-names
 help:
 	@echo 'make kind-up       Create four named kind clusters + FreeLens kubeconfigs'
 	@echo 'make karmada-up    Karmada v1.19.1 init/join (karmadactl required)'
@@ -21,6 +21,7 @@ help:
 	@echo 'make demo-manual   Manual burst 4->8->10->16->22->8->4'
 	@echo 'make reset-demo    Stop HPA/load and restore four Ready replicas'
 	@echo 'make demo-auto     Run bounded FederatedHPA burst, scale-in and reset'
+	@echo 'make demo-failover Pause the owned dc-primary node twice for a controlled failover test'
 	@echo 'make auto-stop     Disable load generators and FederatedHPA'
 	@echo 'make preflight     Check host CLI versions and Docker availability'
 	@echo 'make verify-names Enforce naming contract'
@@ -75,6 +76,8 @@ reset-demo:
 auto-start:
 	./scripts/run-auto.sh
 demo-auto: auto-start
+demo-failover: verify-names
+	python3 scripts/run-failover.py
 auto-stop:
 	./scripts/stop-auto.sh
 verify-names:
