@@ -43,6 +43,68 @@ flowchart TB
 
 Karmada manages the member clusters in **Push** mode: controllers on the management side send resources through each member's Kubernetes API. Grafana is for observation; it does not schedule the application.
 
+## The basics: what Karmada manages and where the YAML goes
+
+A standalone Kubernetes cluster has its own API server, controllers and resources. Karmada adds a **separate central API and control plane** above those clusters. There we declare *what* should run and use a policy to describe *which members* should receive it and how. Karmada does not merge the four clusters into one Kubernetes cluster: the three members retain their own APIs and local schedulers.
+
+```mermaid
+flowchart TB
+  W["WSL: make up / kubectl"]
+  subgraph MG["karmada-mgmt: physical kind cluster"]
+    MK["Management Kubernetes API<br/>kind-karmada-mgmt"]
+    KA["Separate Karmada API + etcd"]
+    CTRL["Karmada controller-manager + scheduler"]
+    KA <--> CTRL
+  end
+  DC1["dc-primary<br/>own Kubernetes API"]
+  DC2["dc-secondary<br/>own Kubernetes API"]
+  CLOUD["cloud-azure<br/>own Kubernetes API"]
+  W -->|"Install Karmada / inspect status"| MK
+  W -->|"Deployment + Service + PropagationPolicy"| KA
+  CTRL -->|"Push: resources + status"| DC1
+  CTRL -->|"Push: resources + status"| DC2
+  CTRL -->|"Push: resources + status"| CLOUD
+```
+
+### 1. Register the three members
+
+`make karmada-up` uses [`scripts/init-karmada.sh`](../scripts/init-karmada.sh) to install or verify the Karmada control plane through the **`karmada-mgmt` Kubernetes API**. It then uses `karmadactl join` to register `dc-primary`, `dc-secondary` and `cloud-azure` as members in the **Karmada API**. Those exact names are the Karmada member names; the `kind-` prefix belongs to local kubeconfig contexts. `karmada-mgmt` hosts the control plane and is not joined as a member.
+
+After registration Karmada calls the members' Kubernetes APIs. In Push mode, it observes member state and propagates selected resources to them. The script also configures reachable Docker-network API endpoints and waits for each member to become `Ready`. WSL/Windows clients reach the Karmada API by a different route through a localhost port; `127.0.0.1` inside a cluster Pod is not that endpoint.
+
+### 2. Where do the Deployment and policies go?
+
+[`make deploy`](../Makefile) applies the central `demo` Namespace and `placement-demo` Deployment from [`karmada/placement-demo.yaml`](../karmada/placement-demo.yaml), the Service and **both** PropagationPolicies to the **Karmada API**, using `.runtime/karmada/karmada-apiserver.config`. The Makefile creates each member's `demo` Namespace separately through that member's Kubernetes API. The Deployment in the Karmada API is a central desired-state object; it does not mean demo Pods run directly on the management node.
+
+Karmada controllers watch central Deployments and policies. `placement-demo-burst` matches the Deployment through `resourceSelectors`; the separate `placement-demo-service` selects the Service. Karmada creates a binding, the scheduler decides its targets and replica counts, and propagation controllers send the desired objects to members through Work resources. The members' own Kubernetes controllers create the actual ReplicaSets and Pods. Central and member objects consequently live in different APIs and may temporarily report different states.
+
+For example, `kubectl --kubeconfig .runtime/karmada/karmada-apiserver.config -n demo get deployment,propagationpolicy,resourcebinding` shows Karmada's central view; `kubectl --context kind-dc-primary -n demo get deployment,pods` shows the **member's** actual state. The `kind-karmada-mgmt` context instead inspects controllers and monitoring in the Kubernetes cluster hosting Karmada.
+
+### 3. What do Makefile targets and scripts do?
+
+The [Makefile](../Makefile) is the operational entry point; detailed commands and conditions are in the scripts below. These commands can modify resources, not just display configuration.
+
+| Command | What does it change or observe? |
+| --- | --- |
+| `make up` / `bootstrap` | Runs preflight, kind clusters and kubeconfigs, Karmada init/join, metrics-server and adapter, monitoring backends, exporter and collectors, demo preparation, then verification. [`prepare-demo.sh`](../scripts/prepare-demo.sh) refuses to overwrite an active HPA/load or a demo count other than four; this guard runs after the preceding bootstrap steps. |
+| `make kind-up` / `karmada-up` | [`create-kind.sh`](../scripts/create-kind.sh) creates the four kind clusters if necessary and exports kubeconfigs; `init-karmada.sh` installs/registers, updates member API addresses and checks Ready. |
+| `make metrics-up` | [`install-resource-metrics.sh`](../scripts/install-resource-metrics.sh) installs the three metrics servers and the Karmada adapter; it verifies the APIs rather than checking only that Pods exist. |
+| Monitoring and exporter targets | [`install-observability-backends.sh`](../scripts/install-observability-backends.sh) configures central backends, [`install-collectors.sh`](../scripts/install-collectors.sh) the collectors in four clusters, and [`install-placement-exporter.sh`](../scripts/install-placement-exporter.sh) the Karmada-state exporter. |
+| `make calibrate` | [`calibrate-capacity.py`](../scripts/calibrate-capacity.py) calculates and creates a `capacity-reservation` Pod per member; it refuses recalibration with an active demo/HPA/load. `make up` invokes it during preparation when needed. |
+| `make build load deploy` | Builds the image, loads it into the three kind members, and applies the central Deployment, Service and policies to the Karmada API. |
+| `make demo-manual` | [`run-manual.sh`](../scripts/run-manual.sh) stops FHPA and load, changes the central Deployment replica count, and uses [`wait-manual-stage.py`](../scripts/wait-manual-stage.py) to verify both the binding and member availability. |
+| `make demo-auto` | [`run-auto.sh`](../scripts/run-auto.sh) verifies the metrics API, resets, creates the FHPA and starts local load; [`monitor-auto.py`](../scripts/monitor-auto.py) observes CPU, HPA, binding and member state. It stops load and resets at the end. |
+| `make demo-failover` | [`run-failover.py`](../scripts/run-failover.py) pauses the ownership-verified `dc-primary` node under controlled conditions, applies temporary failover settings, then restores them. See the [failover scenario](../scenarios/02-cluster-failover.md). |
+| `make reset-demo`, `verify`, `down` | Reset stops FHPA/load and requests four Ready replicas; verify also creates Events/markers to test telemetry; down deletes only identified lab clusters, including their local PVC data. |
+
+### 4. How is capacity exhaustion simulated?
+
+We do not keep actual CPU usage at 100%. `capacity-reservation` is a Pod running a lightweight `pause` container with a **large CPU request**. The Kubernetes scheduler can place a new Pod only if the node's allocatable resources accommodate both existing requests and the new request. The reservation Pod therefore reduces the schedulable budget even though its actual CPU consumption can be small.
+
+For example, if one member has one CPU core of schedulable request capacity left after other Pods and the reservation, it can fit **at most four** demo Pods requesting `250m` each as far as CPU is concerned. Memory, Pod slots or other constraints may allow fewer. The script calibrates the three members to approximately 4/6/12 slots, with a 150m CPU buffer, checks memory and Pod-slot requirements, and waits for Karmada's resource summary to converge. These lab limits must not be treated as the capacity of three independent physical hosts.
+
+Declarative deployment with Argo CD is a separate, not-yet-implemented option: [Argo CD + Karmada concept](ARGOCD_KARMADA.md).
+
 ## 2. What does each component do?
 
 | Component | Role and effect |
@@ -95,6 +157,8 @@ The lab scheduler sets `CustomizedClusterResourceModeling=false`, using the deta
 ### Why 4 + 6 + 12?
 
 The [capacity calibrator](../scripts/calibrate-capacity.py) inspects allocatable resources and existing requests in each single-node member. It then calculates the `capacity-reservation` Pod request to leave room for approximately 4, 6 and 12 demo Pods respectively, each requesting 250m CPU, plus a 150m CPU buffer. It checks memory requests, Pod slots and available WSL memory, and waits for the Karmada cluster resource summary to converge.
+
+For an illustrative calculation matching a previously observed 12,000m `dc-primary` node: if other Pods request 1,060m and the target is four demo Pods plus a 150m buffer, the reservation Pod requests `12000m − 1060m − (4 × 250m) − 150m = 9790m`. After four demo Pods, the calculation leaves 150m, too little for another 250m Pod request. The script measures actual values at runtime; Kubernetes and Karmada summaries may temporarily differ.
 
 **Allocatable minus requests** is a scheduling measure, not currently idle CPU time or available physical memory. The three kind nodes share one WSL host, so their reported unrequested memory must not be added as independent physical capacity. The reservation Pod's CPU request also does not imply constant actual CPU consumption of that amount.
 

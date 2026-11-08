@@ -61,6 +61,7 @@ Recreating kind clusters generates new certificates and kubeconfigs. Entries add
 On the rebuilt lab, `make up`, `make verify`, and both the manual and automatic demos passed. The first installation attempt during the rebuild stopped when the GitHub CRD download timed out; retrying with a verified cached archive succeeded. **Installation with a completely empty download cache has not been verified.** Separate Windows-host metrics are not currently a priority.
 
 - [Detailed architecture and scenarios](docs/ARCHITECTURE.md) · [Magyar változat](docs/ARCHITECTURE.hu.md)
+- [Argo CD + Karmada GitOps concept](docs/ARGOCD_KARMADA.md) · [Magyar változat](docs/ARGOCD_KARMADA.hu.md) — proposed only; no Argo CD installation
 - [Demo runbook and diagnostic queries](scenarios/01-06-burst-runbook.md)
 - [Cluster failover scenario](scenarios/02-cluster-failover.md) · [Magyar változat](scenarios/02-cluster-failover.hu.md) — controlled outage, monitoring and recovery
 - [Observability components](observability/README.md)

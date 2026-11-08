@@ -61,6 +61,7 @@ A kind clusterek újraépítése után új tanúsítványok és kubeconfigok kel
 Az újraépített laboron a `make up`, `make verify`, a kézi és az automatikus demó sikeres volt. Az újraépítés első telepítési kísérlete a GitHub CRD-letöltésének időtúllépésén megállt; ellenőrzött gyorsítótárazott csomaggal az újrapróbálás sikerült. **Teljesen üres letöltési gyorsítótárból telepítés még nincs igazolva.** A Windows-gazdagép külön metrikái jelenleg nem prioritások.
 
 - [Részletes architektúra és forgatókönyvek](docs/ARCHITECTURE.hu.md)
+- [Argo CD + Karmada GitOps-koncepció](docs/ARGOCD_KARMADA.hu.md) · [English](docs/ARGOCD_KARMADA.md) — csak terv, nincs Argo CD telepítve
 - [Demo runbook és diagnosztikai lekérdezések](scenarios/01-06-burst-runbook.md)
 - [Cluster-failover forgatókönyv](scenarios/02-cluster-failover.hu.md) · [English](scenarios/02-cluster-failover.md) — kontrollált kiesés, megfigyelés és helyreállítás
 - [Megfigyelési összetevők](observability/README.md)

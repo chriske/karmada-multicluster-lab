@@ -43,6 +43,68 @@ flowchart TB
 
 A tagclustereket a Karmada **Push** módban kezeli: a management oldali vezérlők a tagok Kubernetes API-ján keresztül juttatják el hozzájuk az erőforrásokat. A Grafana megfigyelésre szolgál, nem ő ütemezi az alkalmazást.
 
+## Az alapok: mit kezel a Karmada, és hová kerülnek a YAML-ok?
+
+Egy önálló Kubernetes-clusternek saját API-szervere, vezérlői és erőforrásai vannak. A Karmada e fölé **külön, központi API-t és vezérlősíkot** ad. Ebben írjuk le, *mit* szeretnénk futtatni, és egy policyban azt is, *mely tagclusterekbe* és hogyan terjedjen tovább. A Karmada nem vonja össze a négy clustert egyetlen Kubernetes-clusterré: a három tag továbbra is saját API-val és helyi schedulerrel működik.
+
+```mermaid
+flowchart TB
+  W["WSL: make up / kubectl"]
+  subgraph MG["karmada-mgmt: fizikai kind cluster"]
+    MK["Management Kubernetes API<br/>kind-karmada-mgmt"]
+    KA["Külön Karmada API + etcd"]
+    CTRL["Karmada controller-manager + scheduler"]
+    KA <--> CTRL
+  end
+  DC1["dc-primary<br/>saját Kubernetes API"]
+  DC2["dc-secondary<br/>saját Kubernetes API"]
+  CLOUD["cloud-azure<br/>saját Kubernetes API"]
+  W -->|"Karmada telepítése / állapotlekérdezés"| MK
+  W -->|"Deployment + Service + PropagationPolicy"| KA
+  CTRL -->|"Push: erőforrások + állapot"| DC1
+  CTRL -->|"Push: erőforrások + állapot"| DC2
+  CTRL -->|"Push: erőforrások + állapot"| CLOUD
+```
+
+### 1. A három tag regisztrálása
+
+A `make karmada-up` a [`scripts/init-karmada.sh`](../scripts/init-karmada.sh) segítségével először a **`karmada-mgmt` Kubernetes API-ján** keresztül telepíti, illetve ellenőrzi a Karmada vezérlősíkját. Ezután a `karmadactl join` a `dc-primary`, `dc-secondary` és `cloud-azure` clustereket a **Karmada API-ban** tagként regisztrálja. A tagok Karmada-beli neve pontosan ez a három név; a `kind-` előtag a helyi kubeconfig-kontextusok része. A `karmada-mgmt` a vezérlősíkot fogadja be, nem tagként csatlakozik.
+
+A regisztráció után a Karmada a tagok Kubernetes API-ját hívja: Push módban megfigyeli a tagok állapotát, és oda terjeszti a kiválasztott erőforrásokat. A script az elérhető Docker-hálózati API-végpontot is beállítja és megvárja a tag `Ready` állapotát. A WSL/Windows kliens másik útvonalon, localhost-porton éri el a Karmada API-t; egy clusterben futó Pod számára a saját `127.0.0.1` címe nem ugyanaz a végpont.
+
+### 2. Hová kerül a Deployment és a policy?
+
+A [`make deploy`](../Makefile) a [`karmada/placement-demo.yaml`](../karmada/placement-demo.yaml) fájlban található központi `demo` Namespace-t és `placement-demo` Deploymentet, a Service-t és **mindkét** PropagationPolicyt a **Karmada API-ba** alkalmazza, az `.runtime/karmada/karmada-apiserver.config` kubeconfiggal. A tagok `demo` Namespace-ét a Makefile külön létrehozza a három tag Kubernetes API-ján. A Karmada API-ban lévő Deployment egy központi, kívánt állapotot leíró objektum; nem közvetlenül a management cluster node-ján induló demo Podokat jelenti.
+
+A Karmada vezérlői figyelik a központi Deploymentet és a policykat. A `placement-demo-burst` `resourceSelectors` alapján ehhez a Deploymenthez illeszkedik; a külön `placement-demo-service` a Service-t választja ki. A Karmada bindingot hoz létre, a scheduler abban dönt a célokról és a replikaszámokról, majd a terjesztési vezérlők Work erőforrásokon keresztül elküldik a kívánt objektumokat a tagoknak. A tagok saját Kubernetes-vezérlői készítik el a tényleges ReplicaSeteket és Podokat. A központi és a tagi objektumok ezért külön API-ban vannak, és állapotuk átmenetileg eltérhet.
+
+Például: `kubectl --kubeconfig .runtime/karmada/karmada-apiserver.config -n demo get deployment,propagationpolicy,resourcebinding` a Karmada központi nézetét mutatja; `kubectl --context kind-dc-primary -n demo get deployment,pods` a **tagcluster** tényleges állapotát. A `kind-karmada-mgmt` kontextussal ezzel szemben a Karmadát befogadó management Kubernetes-clusterben lévő vezérlőket és monitoringot vizsgáljuk.
+
+### 3. Mit végeznek a Makefile és a scriptek?
+
+A [Makefile](../Makefile) operatív belépési pont; a részletes parancsok és feltételek az alábbi scriptekben vannak. A parancsok erőforrásokat módosíthatnak, nem pusztán megjelenítik a konfigurációt.
+
+| Parancs | Mit módosít vagy figyel? |
+| --- | --- |
+| `make up` / `bootstrap` | Sorban preflight, kind clusterek és kubeconfigok, Karmada init/join, metrics-server és adapter, monitoring backendek, exporter és collectorek, demo-előkészítés, majd ellenőrzés. A [`prepare-demo.sh`](../scripts/prepare-demo.sh) aktív HPA/load vagy nem 4-es demo esetén megtagadja a demo felülírását; ez a többi bootstrap-lépés után történik. |
+| `make kind-up` / `karmada-up` | A [`create-kind.sh`](../scripts/create-kind.sh) szükség esetén létrehozza a négy kind clustert és kubeconfigokat exportál; az `init-karmada.sh` telepít/regisztrál, frissíti a tag-API címeket és ellenőrzi a Ready-t. |
+| `make metrics-up` | A [`install-resource-metrics.sh`](../scripts/install-resource-metrics.sh) telepíti a három metrics-servert és a Karmada adaptert; nem elégszik meg a Podok létezésével, API-ellenőrzés is történik. |
+| Monitoring és exporter célok | Az [`install-observability-backends.sh`](../scripts/install-observability-backends.sh) a központi backendeket, az [`install-collectors.sh`](../scripts/install-collectors.sh) a négy cluster gyűjtőit, az [`install-placement-exporter.sh`](../scripts/install-placement-exporter.sh) a Karmada-állapot exportját állítja be. |
+| `make calibrate` | A [`calibrate-capacity.py`](../scripts/calibrate-capacity.py) számol és tagonként `capacity-reservation` Podot hoz létre; aktív demo/HPA/load esetén megtagadja az újrakalibrálást. A `make up` szükség esetén előkészítéskor hívja. |
+| `make build load deploy` | Image-et épít, betölti azt a három kind tagba, majd a központi Deploymentet, Service-t és policykat a Karmada API-ba alkalmazza. |
+| `make demo-manual` | A [`run-manual.sh`](../scripts/run-manual.sh) leállítja az FHPA-t és a loadot, módosítja a központi Deployment replikaszámát, és a [`wait-manual-stage.py`](../scripts/wait-manual-stage.py) segítségével a bindingot és a tagi elérhetőséget is ellenőrzi. |
+| `make demo-auto` | A [`run-auto.sh`](../scripts/run-auto.sh) ellenőrzi a metrics API-t, alaphelyzetbe állít, létrehozza az FHPA-t, helyi loadot indít; a [`monitor-auto.py`](../scripts/monitor-auto.py) CPU-t, HPA-t, bindingot és tagi állapotot figyel. A futás végén leállít és visszaállít. |
+| `make demo-failover` | A [`run-failover.py`](../scripts/run-failover.py) kontrolláltan szünetelteti a tulajdonellenőrzött `dc-primary` node-ot, ideiglenes failover-beállításokat alkalmaz, majd visszaállít. Részletek: [failover-forgatókönyv](../scenarios/02-cluster-failover.hu.md). |
+| `make reset-demo`, `verify`, `down` | A reset leállítja az FHPA-t/loadot és négy Ready replikát kér; a verify az állapot és adatfolyam ellenőrzéséhez eseményeket/markert is létrehoz; a down csak az azonosított laborclustereket, a helyi PVC-adataikkal együtt törli. |
+
+### 4. Hogyan fogyasztjuk el a szimulált kapacitást?
+
+Nem a valódi CPU-t terheljük tartósan 100%-ra. A `capacity-reservation` egy könnyű `pause` konténert futtató Pod, amely **nagy CPU-requestet** kér. A Kubernetes scheduler az új Podot akkor tudja elhelyezni, ha a node allocatable értékébe a már kért erőforrások és az új Pod requestje is belefér. A foglaló Pod tehát az ütemezhető keretet csökkenti, miközben a tényleges CPU-fogyasztása kicsi lehet.
+
+Példa: ha egy tag node-ján a többi Pod és a foglaló Pod után 1 CPU-magnyi ütemezhető CPU-request marad, akkor ott a `250m`-t kérő demóból **legfeljebb négy** fér el CPU szempontból. A memória, a Pod-helyek vagy más megszorítások ennél kevesebbet is engedhetnek. A script a három tagot célzottan kb. 4/6/12 férőhelyre kalibrálja, 150m CPU-pufferrel, ellenőrzi a memória- és Pod-helyigényt, majd megvárja a Karmada erőforrás-összesítésének közelítését. Ezt a laborkorlátot nem szabad három önálló fizikai gép kapacitásának tekinteni.
+
+Az Argo CD-vel történő deklaratív telepítés külön, még nem megvalósított lehetőség: [Argo CD + Karmada koncepció](ARGOCD_KARMADA.hu.md).
+
 ## 2. A részek feladata
 
 | Összetevő | Feladat és hatása |
@@ -95,6 +157,8 @@ A labor schedulerében a `CustomizedClusterResourceModeling=false`: a konfigurá
 ### Miért éppen 4 + 6 + 12?
 
 A [kapacitáskalibráló](../scripts/calibrate-capacity.py) minden egynode-os tagban megnézi az allocatable erőforrásokat és a már igényelt requesteket. Ezután a `capacity-reservation` Pod requestjét úgy számítja, hogy hozzávetőleg 4, 6, illetve 12 darab, egyenként 250m CPU-requestű demo Pod férjen el, 150m CPU-puffer mellett. Ellenőrzi a memóriarequesteket, a Pod-helyeket, valamint a WSL szabad memóriáját, és megvárja a Karmada cluster-erőforrásösszesítésének közelítését.
+
+A kalibrálás számítására egy szemléltető, a `dc-primary` korábbi 12 000m-es node-jához illeszkedő példa: ha a többi Pod 1060m-et kér, a cél négy demo Pod és 150m puffer, akkor a foglaló Pod requestje `12000m − 1060m − (4 × 250m) − 150m = 9790m`. Négy demo Pod után a számításban 150m marad, ami még egy 250m-es Pod requestjéhez kevés. A tényleges értékeket a script a futtatáskor méri; a Kubernetes és Karmada adatai időben eltérhetnek.
 
 Az **allocatable mínusz requestek** ütemezési adat; nem az éppen szabad processzoridő vagy fizikai memória. A három kind node ugyanazt a WSL-gépet használja, ezért a clusterekben látható szabad memóriaértékek nem adhatók össze fizikai kapacitásként. A foglaló Pod CPU-requestje sem jelent állandó, ugyanekkora tényleges CPU-fogyasztást.
 
